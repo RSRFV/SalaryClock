@@ -29,6 +29,8 @@ import {
   scheduleOf,
   shiftOf,
   shiftLabel,
+  leaveOf,
+  leaveCredit,
   hoursBetween,
   scheduledWorkdays,
   distanceMeters,
@@ -52,7 +54,80 @@ let recordsMonth = monthKeyOf(dateKey(new Date()));
 let lastDate = dateKey(new Date());
 let toastTimer = null;
 
-/* 账户 / 同步（本地 token，独立于业务数据） */
+/* 背景图（仅本机保存，压缩后 data URL） */
+const BG_KEY = 'salary-clock-bg-v1';
+let appBg = '';
+try {
+  appBg = localStorage.getItem(BG_KEY) || '';
+} catch (err) {
+  appBg = '';
+}
+
+function applyBackground() {
+  if (appBg) {
+    document.documentElement.style.setProperty('--app-bg', `url("${appBg}")`);
+    document.body.classList.add('has-bg');
+  } else {
+    document.documentElement.style.removeProperty('--app-bg');
+    document.body.classList.remove('has-bg');
+  }
+}
+
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const max = 1600;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      let data = canvas.toDataURL('image/jpeg', 0.82);
+      if (data.length > 3.5 * 1024 * 1024) data = canvas.toDataURL('image/jpeg', 0.65);
+      if (data.length > 4.5 * 1024 * 1024) {
+        reject(new Error('图片过大，请换一张更小的图片'));
+        return;
+      }
+      resolve(data);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('无法读取图片'));
+    };
+    img.src = url;
+  });
+}
+
+async function setBackgroundFile(file) {
+  if (!file) return;
+  try {
+    const dataUrl = await compressImage(file);
+    appBg = dataUrl;
+    localStorage.setItem(BG_KEY, dataUrl);
+    applyBackground();
+    render();
+    toast('背景图已更新');
+  } catch (err) {
+    toast(`背景设置失败：${err.message}`);
+  }
+}
+
+function removeBackground() {
+  appBg = '';
+  try {
+    localStorage.removeItem(BG_KEY);
+  } catch (err) {
+    /* ignore */
+  }
+  applyBackground();
+  render();
+  toast('已恢复默认背景');
+}
 const AUTH_KEY = 'salary-clock-auth-v1';
 let auth = loadAuth();
 let pushTimer = null;
@@ -298,6 +373,7 @@ function homeHTML() {
   const segs = day ? [...day.segments].sort((a, b) => a.s - b.s) : [];
   const tSch = s.shiftMode ? scheduleOf(s, tk) : null;
   const restToday = s.shiftMode ? isRestDay(s, tk) : false;
+  const leaveToday = leaveOf(s, tk);
   const tType = s.shiftMode ? shiftOf(s, tk) : null;
 
   const heroClass = mode === 'overtime' ? 'is-ot' : mode === 'normal' ? 'is-normal' : 'is-idle';
@@ -346,13 +422,13 @@ function homeHTML() {
   <div class="actions">${actions}</div>
 
   ${
-    s.shiftMode
+    s.shiftMode || leaveToday
       ? `<section class="card tight">
            <div class="loc">
              <div class="loc-ico">🗓</div>
              <div class="loc-main">
-               <b>今日${restToday ? '休息' : ` · ${tType ? tType.name : '上班'}`}</b>
-               <small>${restToday ? '排班日历里标记为休息日' : `${tType ? tType.start : s.workStart} – ${tType ? tType.end : s.workEnd}`}</small>
+               <b>今日${leaveToday ? ` · ${leaveToday}` : restToday ? '休息' : ` · ${tType ? tType.name : '上班'}`}</b>
+               <small>${leaveToday ? '请假日照常计薪' : restToday ? '排班日历里标记为休息日' : `${tType ? tType.start : s.workStart} – ${tType ? tType.end : s.workEnd}`}</small>
              </div>
            </div>
          </section>`
@@ -511,6 +587,15 @@ function settingsHTML() {
       </button>
     </div>
     <div class="hint" style="margin-top:8px">只切换配色，打卡与金额数据不受影响。</div>
+    <div class="field">
+      <label><span class="lab">背景图</span></label>
+      <div class="loc-actions">
+        <button class="btn ghost sm" data-act="upload-bg">上传背景图</button>
+        ${appBg ? '<button class="btn ghost sm" data-act="remove-bg">移除背景</button>' : ''}
+        <input type="file" id="bg-file" accept="image/*" hidden />
+      </div>
+      <div class="hint">图片会自动压缩并只保存在本机，不会上传服务器。</div>
+    </div>
   </section>
 
   <section class="card">
@@ -643,20 +728,11 @@ function settingsHTML() {
                .join('')}
              <div class="hint">默认班次是第一个；点击排班日历给某一天选班次或休息。</div>
            </div>
-           <div class="loc">
-             <div class="loc-ico">🗓</div>
-             <div class="loc-main">
-               <b>今日${restToday ? '休息' : ` · ${todayShiftName}`}</b>
-               <small>${restToday ? '排班日历里标记为休息日' : `${todayShiftStart} – ${todayShiftEnd}`}</small>
-             </div>
-           </div>
            <div class="loc-actions">
-             <button class="btn primary sm" data-act="shift-calendar">打开排班日历</button>
              <button class="btn ghost sm" data-act="import-shift">导入 CSV/JSON</button>
              <input type="file" id="shift-file" accept=".csv,.json,text/csv,application/json" hidden />
            </div>
-           <div class="hint">本月上班 ${schedCount} 天；点击日期可设为早/中/晚班或休息。</div>
-           <div class="loc-actions"><button class="btn ghost sm" data-act="clear-schedule">清空本月排班</button></div>`
+           <div class="hint">班次、请假、休息都在顶部「日历 → 排班」里设置；本月上班 ${schedCount} 天。</div>`
         : `<div class="input-line end">
              <input type="time" class="input time" data-field="workStart" value="${s.workStart}" />
              <input type="time" class="input time" data-field="workEnd" value="${s.workEnd}" />
@@ -741,7 +817,7 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.5.0</span></div>
+    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.6.0</span></div>
     <div class="about">
       <b>时薪时钟 SalaryClock</b> — 把月薪换算成看得见的每秒收入。<br>
       数据默认只保存在本机；登录后会同步到你配置的服务器。<br>
@@ -1359,6 +1435,7 @@ async function importScheduleFile(file) {
 let calMonth = monthKeyOf(dateKey(new Date()));
 let calMode = 'view';
 let calSelected = null;
+const LEAVE_TYPES = ['年假', '病假', '事假', '调休'];
 
 function openCalendar(mode = 'view', month) {
   calMode = mode;
@@ -1382,15 +1459,16 @@ function renderCalendar() {
     const key = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const day = state.days[key];
     const ds = day ? daySummary(day, state.settings) : null;
-    const pay = ds ? ds.pay : 0;
+    const leave = leaveOf(state.settings, key);
+    const pay = ds ? ds.pay : leave ? leaveCredit(state.settings, key) : 0;
     const holiday = state.settings.holidays.includes(key);
     const rest = isRestDay(state.settings, key);
-    const work = state.settings.shiftMode && !rest;
+    const work = calMode === 'edit' && !rest && !leave;
     const today = key === dateKey(new Date());
     const type = shiftOf(state.settings, key);
-    const tag = rest ? '休' : type ? type.name.slice(0, 1) : '';
+    const tag = rest ? '休' : leave ? leave.slice(0, 1) : type ? type.name.slice(0, 1) : '';
     const selected = calMode === 'edit' && calSelected === key ? 'selected' : '';
-    cells.push(`<button class="cal-cell ${work ? 'work' : ''} ${rest ? 'rest' : ''} ${today ? 'today' : ''} ${holiday ? 'holiday' : ''} ${selected}" data-act="cal-day" data-day="${key}">
+    cells.push(`<button class="cal-cell ${work ? 'work' : ''} ${rest ? 'rest' : ''} ${leave ? 'leave' : ''} ${today ? 'today' : ''} ${holiday ? 'holiday' : ''} ${selected}" data-act="cal-day" data-day="${key}">
       <span class="cal-num">${d}</span>
       ${
         calMode === 'edit'
@@ -1410,13 +1488,17 @@ function renderCalendar() {
       <b>${y}年${m}月</b>
       <button class="icon-btn" data-act="cal-next" aria-label="下个月">›</button>
     </div>
+    <div class="cal-tabs">
+      <button class="cal-tab ${calMode === 'view' ? 'active' : ''}" data-act="cal-mode" data-value="view">收入</button>
+      <button class="cal-tab ${calMode === 'edit' ? 'active' : ''}" data-act="cal-mode" data-value="edit">排班</button>
+    </div>
     <div class="cal-week">${['日', '一', '二', '三', '四', '五', '六'].map((w) => `<span>${w}</span>`).join('')}</div>
     <div class="cal-grid">${cells.join('')}</div>
     <div class="cal-picker" id="cal-picker" hidden>
-      <div class="cal-picker-title">选择班次</div>
+      <div class="cal-picker-title">选择班次 / 请假</div>
       <div class="chip-row" id="cal-options"></div>
     </div>
-    <div class="cal-hint">${calMode === 'edit' ? '点击日期选择班次或休息，未设置默认第一个班次' : '日期下方是当天已赚，红点表示节假日'}</div>
+    <div class="cal-hint">${calMode === 'edit' ? '点击日期设置班次、请假或休息；未设置默认第一个班次' : '日期下方是当天已赚（含请假计薪），红点表示节假日'}</div>
     <div class="sheet-actions">
       <button class="btn ghost" data-act="cal-close">关闭</button>
     </div>
@@ -1427,10 +1509,12 @@ function updateCalCell(key) {
   const cell = document.querySelector(`.cal-cell[data-day="${key}"]`);
   if (!cell) return;
   const rest = isRestDay(state.settings, key);
+  const leave = leaveOf(state.settings, key);
   cell.classList.toggle('rest', rest);
-  cell.classList.toggle('work', !rest);
+  cell.classList.toggle('leave', !!leave);
+  cell.classList.toggle('work', !rest && !leave);
   const type = shiftOf(state.settings, key);
-  const text = rest ? '休' : type ? type.name.slice(0, 1) : '';
+  const text = rest ? '休' : leave ? leave.slice(0, 1) : type ? type.name.slice(0, 1) : '';
   let tag = cell.querySelector('.cal-tag');
   if (!tag) {
     tag = document.createElement('span');
@@ -1445,15 +1529,17 @@ function showDayDetail(key) {
   const day = state.days[key];
   const ds = day ? daySummary(day, state.settings) : null;
   const holiday = state.settings.holidays.includes(key);
-  const rest = state.settings.shiftMode ? isRestDay(state.settings, key) : false;
-  const type = state.settings.shiftMode ? shiftOf(state.settings, key) : null;
+  const rest = isRestDay(state.settings, key);
+  const leave = leaveOf(state.settings, key);
+  const type = shiftOf(state.settings, key);
+  const pay = ds ? ds.pay : leave ? leaveCredit(state.settings, key) : 0;
   openSheet({
     title: `${key}${holiday ? ' · 节假日' : ''}`,
     body: `<div class="sum-grid">
-      <div><span>当天收入</span><b class="lime">¥${fmtMoney(ds ? ds.pay : 0)}</b></div>
+      <div><span>当天收入</span><b class="lime">¥${fmtMoney(pay)}</b></div>
       <div><span>工时</span><b>${fmtDur(ds ? ds.totalMs : 0)}</b></div>
       <div><span>加班</span><b>${fmtDur(ds ? ds.otMs : 0)}</b></div>
-      <div><span>班次</span><b>${state.settings.shiftMode ? (rest ? '休息' : type ? type.name : '上班') : '—'}</b></div>
+      <div><span>班次</span><b>${leave || (rest ? '休息' : type ? type.name : '上班')}</b></div>
     </div>`,
     actions: [{ label: '关闭', value: null }],
   });
@@ -1830,6 +1916,13 @@ const actions = {
     render();
   },
   calendar: () => openCalendar('view'),
+  'cal-mode': (el) => {
+    calMode = el.dataset.value === 'edit' ? 'edit' : 'view';
+    calSelected = null;
+    renderCalendar();
+  },
+  'upload-bg': () => document.getElementById('bg-file')?.click(),
+  'remove-bg': () => removeBackground(),
   'shift-calendar': () => openCalendar('edit'),
   'cal-prev': () => shiftCal(-1),
   'cal-next': () => shiftCal(1),
@@ -1858,6 +1951,10 @@ const actions = {
           `<button class="chip ${current && current.shift === type.id ? 'active' : ''}" data-act="cal-pick" data-value="shift:${type.id}">${escapeHTML(type.name)}</button>`,
       ),
       `<button class="chip ${current && current.rest ? 'active' : ''}" data-act="cal-pick" data-value="rest">休息</button>`,
+      ...LEAVE_TYPES.map(
+        (type) =>
+          `<button class="chip ${current && current.leave === type ? 'active' : ''}" data-act="cal-pick" data-value="leave:${type}">${type}</button>`,
+      ),
     ];
     options.innerHTML = chips.join('');
     picker.hidden = false;
@@ -1868,6 +1965,7 @@ const actions = {
     const value = el.dataset.value;
     if (value === 'rest') state.settings.schedule[key] = { rest: true };
     else if (value === 'default') delete state.settings.schedule[key];
+    else if (value.startsWith('leave:')) state.settings.schedule[key] = { leave: value.slice(6) };
     else state.settings.schedule[key] = { shift: value.split(':')[1] };
     save();
     updateCalCell(key);
@@ -1982,6 +2080,11 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'bg-file') {
+    setBackgroundFile(e.target.files && e.target.files[0]);
+    e.target.value = '';
+    return;
+  }
   if (e.target && e.target.id === 'shift-file') {
     importScheduleFile(e.target.files && e.target.files[0]);
     e.target.value = '';
@@ -2049,6 +2152,7 @@ function init() {
   if (['home', 'records', 'settings'].includes(t)) tab = t;
 
   applyTheme(state.settings.theme);
+  applyBackground();
   normalize();
   render({ top: true });
   setInterval(tick, 500);

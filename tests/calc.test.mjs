@@ -16,6 +16,10 @@ import {
   isHoliday,
   isRestDay,
   daysInMonth,
+  leaveOf,
+  leaveCredit,
+  shiftLabel,
+  shiftOf,
   scheduleOf,
   scheduledWorkdays,
   parseDateKey,
@@ -157,6 +161,19 @@ test('排班：默认上班日，标记休息日才扣减', () => {
   assert.equal(isRestDay({ schedule }, '2026-10-01'), true);
   assert.equal(isRestDay({ schedule }, '2026-10-03'), false);
   assert.equal(isRestDay({ schedule }, '2026-12-01'), false);
+});
+
+test('请假：照常计薪，无打卡记录也计入月汇总', () => {
+  const date = '2026-11-02';
+  const s = { ...S, schedule: { [date]: { leave: '年假' } } };
+  const credit = baseHourly(S) * 8;
+  near(leaveCredit(s, date), credit);
+  assert.equal(leaveOf(s, date), '年假');
+  assert.equal(shiftLabel(s, date), '年假');
+  assert.equal(shiftOf(s, date), null);
+  near(daySummary({ date, segments: [] }, s).pay, credit);
+  near(monthSummary({}, s, '2026-11').pay, credit);
+  assert.equal(monthSummary({}, s, '2026-11').dayCount, 1);
 });
 
 test('合规提示：100/h 低于 1.5 倍参考线会提示', () => {

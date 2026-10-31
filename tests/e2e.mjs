@@ -195,6 +195,25 @@ for (const [theme, metaColor] of [['pink', '#fff4f8'], ['dark', '#070a0f'], ['li
   check(`主题 ${theme} 持久化`, themeState.settings.theme === theme, String(themeState.settings.theme));
 }
 
+// 自定义背景图
+await evaluate(`(async () => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+  const blob = await (await fetch(png)).blob();
+  const file = new File([blob], 'bg.png', { type: 'image/png' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  const input = document.getElementById('bg-file');
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  return 1;
+})()`);
+await sleep(1000);
+check('上传背景图', (await evaluate(`document.body.classList.contains('has-bg')`)) === true);
+check('背景图本地持久化', (await evaluate(`!!localStorage.getItem('salary-clock-bg-v1')`)) === true);
+await evaluate(`document.querySelector('[data-act="remove-bg"]').click(); 1`);
+await sleep(300);
+check('移除背景图', (await evaluate(`!document.body.classList.contains('has-bg')`)) === true);
+
 // 月计薪天数：法定 / 不固定 / 自定义
 check('默认按法定 21.75', (await evaluate(`document.querySelector('[data-act="workdays-mode"][data-value="legal"]').classList.contains('active')`)) === true);
 await evaluate(`document.querySelector('[data-act="workdays-mode"][data-value="auto"]').click(); 1`);
@@ -326,7 +345,9 @@ st = await readState();
 const lastType = st.settings.shiftTypes[st.settings.shiftTypes.length - 1];
 check('修改班次名称', lastType.name === '测试班', lastType.name);
 
-await evaluate(`document.querySelector('[data-act="shift-calendar"]').click(); 1`);
+await evaluate(`document.querySelector('[data-act="calendar"]').click(); 1`);
+await sleep(300);
+await evaluate(`document.querySelector('[data-act="cal-mode"][data-value="edit"]').click(); 1`);
 await sleep(300);
 check(
   '打开排班日历',
@@ -353,6 +374,15 @@ await sleep(300);
 st = await readState();
 check('选择休息日', st.settings.schedule?.[todayKey]?.rest === true, JSON.stringify(st.settings.schedule));
 check('休息日青色底（class=rest）', (await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('rest')`)) === true);
+
+await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
+await sleep(250);
+await evaluate(`[...document.querySelectorAll('#cal-options [data-act="cal-pick"]')].find((b) => b.textContent === '年假').click(); 1`);
+await sleep(300);
+st = await readState();
+check('请假写入排班', st.settings.schedule?.[todayKey]?.leave === '年假', JSON.stringify(st.settings.schedule));
+check('请假显示黄色底（class=leave）', (await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('leave')`)) === true);
+check('请假标记「年」', (await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"] .cal-tag')?.textContent || ''`)) === '年');
 
 await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
 await sleep(250);

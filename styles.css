@@ -55,6 +55,8 @@ html[data-theme="dark"] {
   --brand-ring: rgba(8, 11, 16, 0.72);
   --cal-work-bg: rgba(96, 140, 255, 0.22);
   --cal-rest-bg: rgba(45, 212, 191, 0.18);
+  --cal-leave-bg: rgba(245, 158, 11, 0.18);
+  --bg-scrim: rgba(7, 10, 15, 0.72);
 }
 
 /* ---------- 鐧借壊绠€娲侊紙榛樿锛?---------- */
@@ -101,6 +103,8 @@ html[data-theme="light"] {
   --brand-ring: rgba(255, 255, 255, 0.85);
   --cal-work-bg: #dbeafe;
   --cal-rest-bg: #ccfbf1;
+  --cal-leave-bg: #fef3c7;
+  --bg-scrim: rgba(245, 246, 248, 0.82);
 }
 
 /* ---------- 绮夎壊鍙埍 ---------- */
@@ -147,6 +151,8 @@ html[data-theme="pink"] {
   --brand-ring: rgba(255, 255, 255, 0.85);
   --cal-work-bg: rgba(127, 178, 255, 0.22);
   --cal-rest-bg: rgba(94, 234, 212, 0.18);
+  --cal-leave-bg: rgba(251, 191, 36, 0.18);
+  --bg-scrim: rgba(255, 244, 248, 0.82);
 }
 
 * { box-sizing: border-box; }
@@ -243,6 +249,7 @@ h1, h2, h3, h4, p { margin: 0; }
 .cal-cell.blank { background: transparent; border: 0; }
 .cal-cell.work { background: var(--cal-work-bg); }
 .cal-cell.rest { background: var(--cal-rest-bg); }
+.cal-cell.leave { background: var(--cal-leave-bg); }
 .cal-cell.today { border-color: var(--money); box-shadow: inset 0 0 0 1px var(--money-line); }
 .cal-cell.holiday { background: var(--ot-dim); }
 .cal-num { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -269,6 +276,32 @@ h1, h2, h3, h4, p { margin: 0; }
   background: var(--ot);
 }
 .cal-hint { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: center; }
+.cal-tabs { display: flex; gap: 4px; margin-bottom: 8px; padding: 3px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; }
+.cal-tab { flex: 1; height: 32px; border-radius: 9px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.cal-tab.active { background: var(--money-dim); color: var(--money-ink); box-shadow: inset 0 0 0 1px var(--money-line); }
+
+/* 自定义背景图 */
+body.has-bg::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: linear-gradient(var(--bg-scrim), var(--bg-scrim)), var(--app-bg);
+  background-size: cover;
+  background-position: center;
+}
+html[data-theme="dark"] body.has-bg {
+  --surface: rgba(12, 16, 22, 0.62);
+  --surface-2: rgba(12, 16, 22, 0.5);
+  --sheet: rgba(16, 21, 29, 0.96);
+}
+body.has-bg .card,
+body.has-bg .hero,
+body.has-bg .tabbar {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
 .cal-sheet .sheet-actions { margin-top: 12px; }
 .cal-sheet .sheet-actions .btn { min-height: 44px; }
 .live-dot {

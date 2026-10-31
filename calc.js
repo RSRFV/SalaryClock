@@ -123,7 +123,7 @@ export function scheduleOf(settings, dateStr) {
 /** 某天的班次类型：休息返回 null；默认班次为第一个班次 */
 export function shiftOf(settings, dateStr) {
   const entry = scheduleOf(settings, dateStr);
-  if (entry && entry.rest) return null;
+  if (entry && (entry.rest || entry.leave)) return null;
   const types = Array.isArray(settings && settings.shiftTypes) ? settings.shiftTypes : [];
   if (entry && entry.shift) return types.find((t) => t.id === entry.shift) || types[0] || null;
   return types[0] || null;
@@ -132,8 +132,21 @@ export function shiftOf(settings, dateStr) {
 export function shiftLabel(settings, dateStr) {
   const entry = scheduleOf(settings, dateStr);
   if (entry && entry.rest) return '休息';
+  if (entry && entry.leave) return entry.leave;
   const type = shiftOf(settings, dateStr);
   return type ? type.name : '上班';
+}
+
+/** 请假类型（年假/病假/事假/调休），无则 null */
+export function leaveOf(settings, dateStr) {
+  const entry = scheduleOf(settings, dateStr);
+  return entry && entry.leave ? entry.leave : null;
+}
+
+/** 请假当天照常计薪：每日标准工时 × 标准时薪 */
+export function leaveCredit(settings, dateStr) {
+  if (!leaveOf(settings, dateStr)) return 0;
+  return baseHourly(settings) * num(settings.hoursPerDay, 8);
 }
 
 /** 两个 HH:MM 之间的工时（跨天按 +24h） */
@@ -200,7 +213,7 @@ export const EMPTY_DAY = {
   active: null,
 };
 
-/** 一天的汇总 */
+/** 一天的汇总（含请假日照常计薪） */
 export function daySummary(day, settings, now = Date.now()) {
   if (!day || !Array.isArray(day.segments)) return { ...EMPTY_DAY };
   let normalMs = 0;
@@ -214,7 +227,8 @@ export function daySummary(day, settings, now = Date.now()) {
     else normalMs += ms;
     if (seg.e == null) active = seg;
   }
-  return { normalMs, otMs, totalMs: normalMs + otMs, pay, active };
+  const leavePay = leaveCredit(settings, day.date);
+  return { normalMs, otMs, totalMs: normalMs + otMs, pay: pay + leavePay, leavePay, active };
 }
 
 /** 一个月（YYYY-MM）的汇总，now 用于计算进行中的时段 */
@@ -223,15 +237,28 @@ export function monthSummary(days, settings, monthKey, now = Date.now()) {
   let normalMs = 0;
   let otMs = 0;
   let dayCount = 0;
+  let leavePay = 0;
   for (const key of Object.keys(days || {})) {
     if (!key.startsWith(monthKey)) continue;
     const d = daySummary(days[key], settings, now);
     if (d.totalMs > 0) dayCount += 1;
     pay += d.pay;
+    leavePay += d.leavePay || 0;
     normalMs += d.normalMs;
     otMs += d.otMs;
   }
-  return { pay, normalMs, otMs, totalMs: normalMs + otMs, dayCount };
+  // 只有请假、没有打卡记录的日子也要计薪
+  const schedule = (settings && settings.schedule) || {};
+  for (const key of Object.keys(schedule)) {
+    if (!key.startsWith(monthKey)) continue;
+    if (days && days[key]) continue;
+    if (schedule[key] && schedule[key].leave) {
+      pay += leaveCredit(settings, key);
+      leavePay += leaveCredit(settings, key);
+      dayCount += 1;
+    }
+  }
+  return { pay, normalMs, otMs, totalMs: normalMs + otMs, dayCount, leavePay };
 }
 
 /** 计时器展示：HH:MM:SS，小时不封顶 */

@@ -84,8 +84,9 @@ await shot('records.png', `${APP}?demo=1&tab=records`, null, 'light');
 await shot('calendar.png', `${APP}?demo=1`, `document.querySelector('[data-act="calendar"]').click(); 1`, 'light');
 await shot('schedule-calendar.png', `${APP}?tab=settings`, `
   document.querySelector('[data-act="shift-mode"][data-value="on"]').click();
-  setTimeout(() => document.querySelector('[data-act="shift-calendar"]').click(), 250);
-  setTimeout(() => { const d = [...document.querySelectorAll('.cal-grid .cal-cell:not(.blank)')]; if (d[3]) d[3].click(); }, 600);
+  setTimeout(() => document.querySelector('[data-act="calendar"]').click(), 100);
+  setTimeout(() => document.querySelector('[data-act="cal-mode"][data-value="edit"]').click(), 300);
+  setTimeout(() => { const d = [...document.querySelectorAll('.cal-grid .cal-cell:not(.blank)')]; if (d[3]) d[3].click(); }, 500);
   1`, 'light');
 await shot('checkin.png', `${APP}?tab=settings`, `
   document.querySelector('[data-act="checkin-mode"][data-value="auto"]').click();
