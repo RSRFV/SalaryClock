@@ -70,6 +70,17 @@ node tests/e2e.mjs
 - 产品方案评估与优化（PM 文档）：[`docs/产品方案评估与优化.md`](./docs/产品方案评估与优化.md)
 - 界面截图：`docs/home.png`（白色简洁）、`docs/home-dark.png`（夜间）、`docs/home-pink.png`（粉色可爱）、`docs/checkout.png`（下班结算）、`docs/settings.png`（时薪口径与主题）、`docs/settings-ot.png`（加班计费）、`docs/records.png`（含实发校准）、`docs/empty.png`
 
+## 安装包
+
+| 平台 | 产物 | 说明 |
+| --- | --- | --- |
+| Android | `dist/SalaryClock-android-debug.apk`（GitHub Actions 自动构建） | debug 签名，可直接安装自用；上架需自建 keystore |
+| iOS | `dist/SalaryClock-ios-unsigned.ipa`（未签名） | **不能直接安装**，需 Sideloadly/AltStore 自签，或使用 Apple 开发者账号 |
+
+- 构建入口：**Actions → Build Android APK / Build iOS (unsigned) → Run workflow**
+- 详细步骤与签名说明见 [`docs/安装包构建说明.md`](./docs/安装包构建说明.md)
+- 最快的 iOS 体验方式：把网页部署到 HTTPS（GitHub Pages 等），Safari 打开后「添加到主屏幕」
+
 ## 手机上用
 
 1. 电脑与手机连同一 Wi-Fi，改用监听全部网卡启动（`start-demo.ps1` 默认只监听本机）：

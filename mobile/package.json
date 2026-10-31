@@ -1,0 +1,20 @@
+{
+  "name": "salary-clock-mobile",
+  "version": "0.2.0",
+  "private": true,
+  "description": "时薪时钟 SalaryClock 的 Capacitor 壳工程（Android / iOS）",
+  "scripts": {
+    "build-web": "node scripts/build-web.mjs",
+    "sync": "npm run build-web && cap sync",
+    "android": "npm run build-web && cap sync android",
+    "ios": "npm run build-web && cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/ios": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  }
+}

@@ -1,0 +1,94 @@
+name: Build iOS (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios-unsigned.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-unsigned
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Ensure CocoaPods
+        run: |
+          if ! command -v pod >/dev/null 2>&1; then
+            sudo gem install cocoapods --no-document
+          fi
+          pod --version
+
+      - name: Install npm dependencies
+        working-directory: mobile
+        run: npm install --no-audit --no-fund
+
+      - name: Prepare web assets
+        working-directory: mobile
+        run: node scripts/build-web.mjs
+
+      - name: Add iOS platform
+        working-directory: mobile
+        run: npx cap add ios
+
+      - name: Sync Capacitor
+        working-directory: mobile
+        run: npx cap sync ios
+
+      - name: Build unsigned app
+        working-directory: mobile/ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package IPA
+        run: |
+          mkdir -p dist/Payload
+          cp -R mobile/ios/App/build/Build/Products/Release-iphoneos/App.app dist/Payload/
+          cd dist
+          zip -qr SalaryClock-ios-unsigned.ipa Payload
+          rm -rf Payload
+          ls -lh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SalaryClock-ios-unsigned
+          path: dist/SalaryClock-ios-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Commit IPA back to repo
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist/SalaryClock-ios-unsigned.ipa
+          if git diff --cached --quiet; then
+            echo "IPA 无变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "chore: 自动构建 iOS 未签名 IPA [skip ci]"
+          git push

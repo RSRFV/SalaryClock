@@ -1,0 +1,14 @@
+{
+  "appId": "com.rsrfv.salaryclock",
+  "appName": "时薪时钟",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "always"
+  }
+}
