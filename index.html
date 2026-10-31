@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>时薪时钟 SalaryClock</title>
+  <meta name="description" content="输入月薪与加班时薪，实时看见今天和本月已经赚到的钱。" />
+  <meta name="theme-color" content="#080B10" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="时薪时钟" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">时薪时钟</span>
+        <span class="brand-sub">SalaryClock</span>
+      </div>
+      <div class="topbar-right">
+        <span class="live-dot" id="live-dot" hidden></span>
+        <span class="now" id="clock-now">--:--</span>
+      </div>
+    </header>
+
+    <main id="view" class="view"></main>
+
+    <nav class="tabbar" role="tablist" aria-label="主导航">
+      <button class="tab" data-act="tab" data-tab="home" role="tab">
+        <span class="tab-ico">◎</span><span>打卡</span>
+      </button>
+      <button class="tab" data-act="tab" data-tab="records" role="tab">
+        <span class="tab-ico">▤</span><span>记录</span>
+      </button>
+      <button class="tab" data-act="tab" data-tab="settings" role="tab">
+        <span class="tab-ico">⚙</span><span>设置</span>
+      </button>
+    </nav>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

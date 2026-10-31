@@ -1,0 +1,14 @@
+# 临时文件
+.tmp-*/
+node_modules/
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 日志与本地配置
+*.log
+.env
+.env.*

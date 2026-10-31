@@ -1,0 +1,21 @@
+{
+  "name": "时薪时钟 SalaryClock",
+  "short_name": "时薪时钟",
+  "description": "输入月薪与加班时薪，实时看见今天和本月已经赚到的钱。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070a0f",
+  "theme_color": "#070a0f",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
