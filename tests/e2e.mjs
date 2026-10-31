@@ -231,7 +231,79 @@ const baseNow = 20000 / 21.75 / 8;
 const expectedOtRate = `¥${(baseNow * expectedMult).toFixed(2)}`;
 check(`倍率模式加班时薪 = ${expectedMult} 倍（${expectedOtRate}）`, otRate === expectedOtRate, otRate);
 
-// 9. 清空数据（含确认弹层）
+// 9. 节假日 / 排班 / 账号同步
+await evaluate(`document.querySelector('[data-act="tab"][data-tab="settings"]').click(); 1`);
+await sleep(300);
+const todayKey = await evaluate(
+  `(() => { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); })()`,
+);
+
+await evaluate(`document.getElementById('holiday-date').value = '${todayKey}'; document.querySelector('[data-act="add-holiday"]').click(); 1`);
+await sleep(300);
+st = await readState();
+check('添加节假日', (st.settings.holidays || []).includes(todayKey), JSON.stringify(st.settings.holidays));
+const holidayOt = (await evaluate(`document.getElementById('derived-ot').textContent`));
+check('节假日加班按 3 倍（¥344.83）', holidayOt === '¥344.83', holidayOt);
+
+await evaluate(`document.querySelector('[data-act="shift-mode"][data-value="on"]').click(); 1`);
+await sleep(300);
+await evaluate(`
+  document.getElementById('shift-date').value = '${todayKey}';
+  document.getElementById('shift-start').value = '10:00';
+  document.getElementById('shift-end').value = '19:00';
+  document.querySelector('[data-act="set-shift"]').click(); 1`);
+await sleep(300);
+st = await readState();
+check(
+  '排班写入',
+  st.settings.shiftMode === true && st.settings.schedule?.[todayKey]?.start === '10:00',
+  JSON.stringify(st.settings.schedule),
+);
+const schedText = await evaluate(`document.body.textContent.includes('排班 10:00')`);
+check('设置页展示排班时间', schedText === true);
+
+// 账户同步（后端需运行在 8788）
+await evaluate(`
+  const api = document.querySelector('[data-field="apiBase"]');
+  api.value = 'http://127.0.0.1:8788';
+  api.dispatchEvent(new Event('input', { bubbles: true }));
+  api.dispatchEvent(new Event('change', { bubbles: true }));
+  1`);
+await sleep(200);
+await evaluate(`document.querySelector('[data-act="register"]').click(); 1`);
+await sleep(300);
+const uname = `e2e${Date.now().toString().slice(-6)}`;
+await evaluate(`
+  document.querySelector('#auth-user').value = '${uname}';
+  document.querySelector('#auth-pass').value = 'pass123';
+  document.querySelector('[data-auth="submit"]').click();
+  1`);
+await sleep(1800);
+const authObj = await evaluate(`(() => { try { return JSON.parse(localStorage.getItem('salary-clock-auth-v1') || 'null'); } catch { return null; } })()`);
+check('注册并登录成功', !!(authObj && authObj.token && authObj.username), JSON.stringify(authObj && { u: authObj.username }));
+const token = authObj && authObj.token;
+if (token) {
+  const remote = await evaluate(
+    `fetch('http://127.0.0.1:8788/api/sync', { headers: { authorization: 'Bearer ${token}' } }).then((r) => r.json()).then((j) => ({ hasData: !!j.data, days: Object.keys((j.data && j.data.days) || {}).length }))`,
+  );
+  check('登录后已推送记录到云端', remote.hasData === true && remote.days >= 1, JSON.stringify(remote));
+
+  await evaluate(`document.getElementById('holiday-date').value = '2026-01-01'; document.querySelector('[data-act="add-holiday"]').click(); 1`);
+  await sleep(3800);
+  const remote2 = await evaluate(
+    `fetch('http://127.0.0.1:8788/api/sync', { headers: { authorization: 'Bearer ${token}' } }).then((r) => r.json()).then((j) => (j.data && j.data.settings && j.data.settings.holidays) || [])`,
+  );
+  check('自动同步把节假日推送到云端', remote2.includes('2026-01-01'), JSON.stringify(remote2));
+
+  await evaluate(`document.querySelector('[data-act="logout"]').click(); 1`);
+  await sleep(300);
+  await evaluate(`document.querySelector('[data-idx="0"]').click(); 1`);
+  await sleep(300);
+  const afterLogout = await evaluate(`localStorage.getItem('salary-clock-auth-v1')`);
+  check('退出登录清除 token', !JSON.parse(afterLogout || '{}').token, afterLogout);
+}
+
+// 10. 清空数据（含确认弹层）
 await evaluate(`document.querySelector('[data-act="wipe"]').click(); 1`);
 await sleep(300);
 await evaluate(`document.querySelector('[data-idx="0"]').click(); 1`);

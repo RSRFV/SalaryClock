@@ -14,6 +14,13 @@ export const DEFAULT_SETTINGS = {
   otFixedRate: 100,          // 固定加班时薪（元/小时）
   otMultiplier: 1.5,         // 平日加班倍率
   otWeekendMultiplier: 2,    // 周末加班倍率
+  otHolidayRate: 300,        // 固定模式下法定节假日加班时薪
+  otHolidayMultiplier: 3,    // 倍率模式下法定节假日倍率
+  holidays: [],              // 法定节假日日期 ['2026-10-01', ...]，手动维护
+
+  // 排班
+  shiftMode: false,          // 是否排班制
+  schedule: {},              // { 'YYYY-MM-DD': { start:'09:00', end:'18:00' } }，无记录视为休息日
 
   // 位置
   geofenceMode: 'loose',     // 'off' 关闭 | 'loose' 提醒 | 'strict' 拦截
@@ -68,15 +75,41 @@ export function baseHourly(settings) {
   return Math.max(0, num(settings.monthlySalary)) / denom;
 }
 
-/** 加班时薪（按记录所属日期判断是否周末） */
+/** 是否法定节假日（由用户在设置里维护日期列表） */
+export function isHoliday(settings, dateStr) {
+  if (!settings || !Array.isArray(settings.holidays)) return false;
+  return settings.holidays.includes(dateStr);
+}
+
+/** 加班时薪（按记录所属日期判断：节假日 > 周末 > 平日） */
 export function overtimeHourly(settings, dateStr = dateKey()) {
   if (settings.otMode === 'multiplier') {
+    const base = baseHourly(settings);
+    if (isHoliday(settings, dateStr)) return base * num(settings.otHolidayMultiplier, 3);
     const mult = isWeekend(dateStr)
       ? num(settings.otWeekendMultiplier, 2)
       : num(settings.otMultiplier, 1.5);
-    return baseHourly(settings) * mult;
+    return base * mult;
   }
+  if (isHoliday(settings, dateStr)) return Math.max(0, num(settings.otHolidayRate));
   return Math.max(0, num(settings.otFixedRate));
+}
+
+/** 某天排班（无记录视为休息日） */
+export function scheduleOf(settings, dateStr) {
+  const schedule = settings && settings.schedule;
+  const entry = schedule && schedule[dateStr];
+  return entry && entry.start ? entry : null;
+}
+
+/** 某月排班工作日数量 */
+export function scheduledWorkdays(schedule, monthKey) {
+  if (!schedule || typeof schedule !== 'object') return 0;
+  return Object.keys(schedule).filter((k) => {
+    if (!k.startsWith(monthKey)) return false;
+    const e = schedule[k];
+    return e && e.start;
+  }).length;
 }
 
 /** 某类工时的单价 */
@@ -205,13 +238,18 @@ export function complianceHint(settings) {
   const base = baseHourly(settings);
   if (!(base > 0)) return '';
   const legal1 = base * 1.5;
-  const legal2 = base * 2;
+  const legal3 = base * 3;
+  const holidayRate =
+    settings.otMode === 'multiplier'
+      ? base * num(settings.otHolidayMultiplier, 3)
+      : Math.max(0, num(settings.otHolidayRate));
   if (settings.otMode === 'fixed') {
     const rate = Math.max(0, num(settings.otFixedRate));
-    if (rate + 0.02 < legal1) {
-      return `固定加班时薪 ¥${rate.toFixed(2)}/h 低于常见法定口径：工作日加班不低于 1.5 倍（¥${legal1.toFixed(2)}/h），休息日不低于 2 倍（¥${legal2.toFixed(2)}/h）。演示数据仅作参考。`;
-    }
-    return `固定加班时薪 ¥${rate.toFixed(2)}/h，高于 1.5 倍参考线（¥${legal1.toFixed(2)}/h）。`;
+    const head =
+      rate + 0.02 < legal1
+        ? `固定加班时薪 ¥${rate.toFixed(2)}/h 低于常见法定口径：工作日加班不低于 1.5 倍（¥${legal1.toFixed(2)}/h），休息日不低于 2 倍（¥${(base * 2).toFixed(2)}/h）。`
+        : `固定加班时薪 ¥${rate.toFixed(2)}/h，高于 1.5 倍参考线（¥${legal1.toFixed(2)}/h）。`;
+    return `${head}节假日加班时薪 ¥${holidayRate.toFixed(2)}/h（3 倍参考 ¥${legal3.toFixed(2)}/h）。演示数据仅作参考。`;
   }
-  return `倍率口径：平日 ×${num(settings.otMultiplier, 1.5)} ≈ ¥${(base * num(settings.otMultiplier, 1.5)).toFixed(2)}/h，周末 ×${num(settings.otWeekendMultiplier, 2)} ≈ ¥${(base * num(settings.otWeekendMultiplier, 2)).toFixed(2)}/h。`;
+  return `倍率口径：平日 ×${num(settings.otMultiplier, 1.5)} ≈ ¥${(base * num(settings.otMultiplier, 1.5)).toFixed(2)}/h，周末 ×${num(settings.otWeekendMultiplier, 2)} ≈ ¥${(base * num(settings.otWeekendMultiplier, 2)).toFixed(2)}/h，节假日 ×${num(settings.otHolidayMultiplier, 3)} ≈ ¥${holidayRate.toFixed(2)}/h。`;
 }

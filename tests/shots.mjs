@@ -82,6 +82,17 @@ await shot('home-dark.png', `${APP}?demo=1`, null, 'dark');
 await shot('home-pink.png', `${APP}?demo=1`, null, 'pink');
 await shot('records.png', `${APP}?demo=1&tab=records`, null, 'light');
 await shot('settings.png', `${APP}?tab=settings`, null, 'light');
+await shot('settings-sync.png', `${APP}?tab=settings`, `
+  const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('账户与同步'));
+  if (card) card.scrollIntoView({ block: 'start' });
+  1`, 'light');
+await shot('settings-shift.png', `${APP}?tab=settings`, `
+  document.querySelector('[data-act="shift-mode"][data-value="on"]').click();
+  setTimeout(() => {
+    const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('排班制'));
+    if (card) card.scrollIntoView({ block: 'start' });
+  }, 200);
+  1`, 'light');
 await shot('settings-ot.png', `${APP}?tab=settings`, `
   document.querySelector('[data-act="ot-mode"][data-value="multiplier"]').click();
   setTimeout(() => {

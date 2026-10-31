@@ -13,6 +13,9 @@ import {
   distanceMeters,
   fmtDistance,
   countWeekdays,
+  isHoliday,
+  scheduleOf,
+  scheduledWorkdays,
   parseDateKey,
   dateKey,
   isWeekend,
@@ -125,6 +128,32 @@ test('本月工作日：2026-10 有 22 个工作日', () => {
   assert.equal(countWeekdays(2026, 9), 22);
   assert.equal(countWeekdays(2026, 1), 20); // 2026-02：28 天，2/1 周日
   assert.equal(countWeekdays(2027, 1), 20); // 2027-02：28 天
+});
+
+test('节假日：固定时薪与倍率分别生效', () => {
+  const fixed = { ...S, holidays: ['2026-10-01'] };
+  assert.equal(overtimeHourly(fixed, '2026-10-01'), 300);
+  assert.equal(overtimeHourly(fixed, '2026-10-02'), 100);
+
+  const mult = { ...S, otMode: 'multiplier', holidays: ['2026-10-01'] };
+  near(overtimeHourly(mult, '2026-10-01'), baseHourly(S) * 3);
+  near(overtimeHourly(mult, '2026-10-02'), baseHourly(S) * 1.5);
+  assert.equal(isHoliday(fixed, '2026-10-01'), true);
+  assert.equal(isHoliday(fixed, '2026-10-02'), false);
+});
+
+test('排班：排班日统计与当日查询', () => {
+  const schedule = {
+    '2026-10-01': { start: '14:00', end: '22:00' },
+    '2026-10-02': { start: '09:00', end: '18:00' },
+    '2026-10-03': { start: '' },
+    '2026-11-01': { start: '08:00', end: '12:00' },
+  };
+  assert.equal(scheduledWorkdays(schedule, '2026-10'), 2);
+  assert.equal(scheduledWorkdays(schedule, '2026-11'), 1);
+  assert.deepEqual(scheduleOf({ schedule }, '2026-10-01'), { start: '14:00', end: '22:00' });
+  assert.equal(scheduleOf({ schedule }, '2026-10-03'), null);
+  assert.equal(scheduleOf({ schedule }, '2026-12-01'), null);
 });
 
 test('合规提示：100/h 低于 1.5 倍参考线会提示', () => {

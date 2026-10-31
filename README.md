@@ -29,9 +29,31 @@ python -m http.server 8787 --bind 127.0.0.1 --directory .
 | 打卡 | 定位围栏（关闭/提醒/严格）、上班打卡、正常↔加班切换、下班结算 |
 | 实时 | 今日已赚逐秒累加、本月累计、月薪进度、今日明细 |
 | 记录 | 按月浏览、每天每段工时与金额、补录、删除、实发校准（对比 + 反推税后时薪） |
-| 设置 | 时薪公式与口径预设（法定 21.75 / 本月工作日 / 自定义）、加班固定时薪或倍率（平日/周末可调）、公司位置、导出 JSON、清空 |
+| 设置 | 时薪公式与口径预设（法定 21.75 / 本月工作日 / 排班天数 / 自定义）、加班固定时薪或倍率（平日/周末/节假日可调）、法定节假日列表、排班制（手动 / CSV / JSON 导入）、公司位置、导出 JSON、清空 |
+| 账户 | 注册 / 登录、云端快照同步、自动同步开关、服务器地址可配 |
 | PWA | 离线可用、可添加到主屏幕 |
 | 外观 | 白色简洁（默认）/ 夜间 / 粉色可爱 三套主题，设置页切换，立即生效并持久化 |
+
+## 后端与同步
+
+零第三方依赖，只需 Node 18+：
+
+```powershell
+node server/index.mjs
+# → http://127.0.0.1:8788（同时托管前端与 API）
+```
+
+然后打开 <http://127.0.0.1:8788/>，在「设置 → 账户与同步」注册/登录即可。也可继续用静态预览（8787）并把服务器地址填成 `http://127.0.0.1:8788`。
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/auth/register` | `{username, password}` → token |
+| `POST /api/auth/login` | 同上，token 有效期 30 天 |
+| `GET /api/sync` | 读取当前用户的快照 `{data, updatedAt}` |
+| `PUT /api/sync` | 上传 `{data, updatedAt}`（整包快照） |
+| `GET /api/health` | 健康检查 |
+
+实现要点：密码 `scrypt` 加盐哈希、token 为 HMAC-SHA256 签名、数据落在 `server/data/users.json`（已 gitignore）、CORS 允许跨域便于本地双端口调试。**生产部署请放在 HTTPS 反向代理后**，并定期备份 `server/data`。详见 [`docs/后端与同步.md`](./docs/后端与同步.md)。
 
 ## 演示数据
 
@@ -68,7 +90,7 @@ node tests/e2e.mjs
 ## 文档与截图
 
 - 产品方案评估与优化（PM 文档）：[`docs/产品方案评估与优化.md`](./docs/产品方案评估与优化.md)
-- 界面截图：`docs/home.png`（白色简洁）、`docs/home-dark.png`（夜间）、`docs/home-pink.png`（粉色可爱）、`docs/checkout.png`（下班结算）、`docs/settings.png`（时薪口径与主题）、`docs/settings-ot.png`（加班计费）、`docs/records.png`（含实发校准）、`docs/empty.png`
+- 界面截图：`docs/home.png`（白色简洁）、`docs/home-dark.png`（夜间）、`docs/home-pink.png`（粉色可爱）、`docs/settings.png`（时薪口径与主题）、`docs/settings-ot.png`（加班计费）、`docs/settings-shift.png`（排班制）、`docs/settings-sync.png`（账户同步）、`docs/records.png`（含实发校准）、`docs/checkout.png`（下班结算）、`docs/empty.png`
 
 ## 安装包
 

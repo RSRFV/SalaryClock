@@ -23,6 +23,9 @@ import {
   hhmm,
   pad2,
   countWeekdays,
+  isHoliday,
+  scheduleOf,
+  scheduledWorkdays,
   distanceMeters,
   fmtDistance,
   complianceHint,
@@ -43,6 +46,112 @@ let tab = 'home';
 let recordsMonth = monthKeyOf(dateKey(new Date()));
 let lastDate = dateKey(new Date());
 let toastTimer = null;
+
+/* 账户 / 同步（本地 token，独立于业务数据） */
+const AUTH_KEY = 'salary-clock-auth-v1';
+let auth = loadAuth();
+let pushTimer = null;
+
+function defaultApiBase() {
+  if (location.port === '8788') return '';
+  if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') return 'http://127.0.0.1:8788';
+  return '';
+}
+
+function loadAuth() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTH_KEY) || 'null');
+    if (saved && saved.token) {
+      return {
+        token: saved.token,
+        username: saved.username || '',
+        apiBase: saved.apiBase != null ? saved.apiBase : defaultApiBase(),
+        autoSync: saved.autoSync !== false,
+        lastSync: saved.lastSync || 0,
+      };
+    }
+  } catch (err) {
+    /* ignore */
+  }
+  return { token: '', username: '', apiBase: defaultApiBase(), autoSync: true, lastSync: 0 };
+}
+
+function saveAuth() {
+  try {
+    localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  } catch (err) {
+    /* ignore */
+  }
+}
+
+function apiUrl(path) {
+  return (auth.apiBase || '').replace(/\/$/, '') + path;
+}
+
+async function apiFetch(path, opts = {}) {
+  const headers = { 'content-type': 'application/json', ...(opts.headers || {}) };
+  if (auth.token) headers.authorization = `Bearer ${auth.token}`;
+  const res = await fetch(apiUrl(path), { ...opts, headers });
+  const text = await res.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch (err) {
+    body = null;
+  }
+  if (!res.ok) throw new Error((body && body.error) || `HTTP ${res.status}`);
+  return body;
+}
+
+function schedulePush() {
+  if (!auth.token || !auth.autoSync) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    syncPush().catch(() => {});
+  }, 2500);
+}
+
+function mergeData(local, remote) {
+  const r = remote || {};
+  return {
+    settings: { ...(r.settings || {}), ...(local.settings || {}) },
+    days: { ...(r.days || {}), ...(local.days || {}) },
+    months: { ...(r.months || {}), ...(local.months || {}) },
+  };
+}
+
+async function syncPush() {
+  const res = await apiFetch('/api/sync', {
+    method: 'PUT',
+    body: JSON.stringify({
+      data: { settings: state.settings, days: state.days, months: state.months },
+      updatedAt: Date.now(),
+    }),
+  });
+  auth.lastSync = (res && res.updatedAt) || Date.now();
+  saveAuth();
+  return auth.lastSync;
+}
+
+async function syncPull() {
+  return apiFetch('/api/sync');
+}
+
+async function syncNow(showToast) {
+  if (!auth.token) return;
+  try {
+    const cloud = await syncPull();
+    if (cloud && cloud.data) {
+      state = mergeData(state, cloud.data);
+      save();
+    }
+    await syncPush();
+    render();
+    if (showToast) toast('已同步到云端');
+  } catch (err) {
+    toast(`同步失败：${err.message}`);
+  }
+}
 
 function loadState() {
   let raw = null;
@@ -65,6 +174,7 @@ function save() {
   } catch (err) {
     console.warn('保存失败', err);
   }
+  if (auth && auth.token && auth.autoSync) schedulePush();
 }
 
 /** 应用主题：html[data-theme] + 浏览器状态栏颜色 */
@@ -152,6 +262,7 @@ function homeHTML() {
   const m = monthSummary(state.days, s, monthKeyOf(tk));
   const pct = s.monthlySalary > 0 ? Math.min(100, (m.pay / s.monthlySalary) * 100) : 0;
   const segs = day ? [...day.segments].sort((a, b) => a.s - b.s) : [];
+  const tSch = s.shiftMode ? scheduleOf(s, tk) : null;
 
   const heroClass = mode === 'overtime' ? 'is-ot' : mode === 'normal' ? 'is-normal' : 'is-idle';
   const pillClass = mode === 'overtime' ? 'is-ot' : mode === 'normal' ? 'is-normal' : 'is-idle';
@@ -197,6 +308,20 @@ function homeHTML() {
   </section>
 
   <div class="actions">${actions}</div>
+
+  ${
+    s.shiftMode
+      ? `<section class="card tight">
+           <div class="loc">
+             <div class="loc-ico">🗓</div>
+             <div class="loc-main">
+               <b>今日${tSch ? `排班 ${tSch.start} – ${tSch.end}` : '休息'}</b>
+               <small>${tSch ? '按排班时间上下班，加班手动切换' : '今天没有排班，也可临时打卡'}</small>
+             </div>
+           </div>
+         </section>`
+      : ''
+  }
 
   <div class="stats">
     <div class="stat"><span>今日工时</span><b>${fmtDur(ds.totalMs)}</b></div>
@@ -285,10 +410,12 @@ function dayCardHTML(day) {
   const s = state.settings;
   const d = daySummary(day, s);
   const segs = [...day.segments].sort((a, b) => a.s - b.s);
+  const sch = s.shiftMode ? scheduleOf(s, day.date) : null;
+  const schedTxt = s.shiftMode ? (sch ? `排班 ${sch.start}–${sch.end}` : '休息日') : '';
   return `<details class="card day-card">
     <summary>
       <div class="day-date"><b>${day.date.slice(5)}</b><span>${weekdayCN(day.date)}</span></div>
-      <div class="day-mid">${fmtDur(d.normalMs)}${d.otMs ? ` · <span class="ot">加班 ${fmtDur(d.otMs)}</span>` : ''}</div>
+      <div class="day-mid">${fmtDur(d.normalMs)}${d.otMs ? ` · <span class="ot">加班 ${fmtDur(d.otMs)}</span>` : ''}${schedTxt ? ` · <span class="sched">${schedTxt}</span>` : ''}</div>
       <div class="day-pay">¥${fmtMoney(d.pay)}</div>
     </summary>
     <div class="day-body">
@@ -308,6 +435,10 @@ function settingsHTML() {
   const hint = complianceHint(s);
   const now = new Date();
   const monthWorkdays = countWeekdays(now.getFullYear(), now.getMonth());
+  const schedCount = s.shiftMode
+    ? scheduledWorkdays(s.schedule, monthKeyOf(dateKey(now)))
+    : 0;
+  const todaySchedule = s.shiftMode ? scheduleOf(s, dateKey(now)) : null;
   const isCustomDays =
     Math.abs(s.workDaysPerMonth - 21.75) > 0.001 &&
     Math.abs(s.workDaysPerMonth - monthWorkdays) > 0.001;
@@ -342,6 +473,41 @@ function settingsHTML() {
   </section>
 
   <section class="card">
+    <div class="card-head"><div class="card-title">账户与同步</div><span class="tag">${auth.token ? '已登录' : '可选'}</span></div>
+    ${
+      auth.token
+        ? `<div class="loc">
+             <div class="loc-ico">👤</div>
+             <div class="loc-main">
+               <b>${escapeHTML(auth.username)}</b>
+               <small>${auth.lastSync ? `上次同步 ${new Date(auth.lastSync).toLocaleString('zh-CN', { hour12: false })}` : '尚未同步'}</small>
+             </div>
+           </div>
+           <div class="loc-actions">
+             <button class="btn ghost sm" data-act="sync-now">立即同步</button>
+             <button class="btn ghost sm" data-act="logout">退出登录</button>
+           </div>
+           <div class="field">
+             <label><span class="lab">自动同步</span></label>
+             <div class="seg">
+               <button data-act="autosync" data-value="on" class="${auth.autoSync ? 'active' : ''}">开</button>
+               <button data-act="autosync" data-value="off" class="${!auth.autoSync ? 'active' : ''}">关</button>
+             </div>
+           </div>`
+        : `<p class="adjust-hint">登录后可把打卡记录同步到自己的服务器，多设备共用；不登录也能纯本地使用。</p>
+           <div class="loc-actions">
+             <button class="btn primary sm" data-act="login">登录</button>
+             <button class="btn ghost sm" data-act="register">注册</button>
+           </div>`
+    }
+    <div class="field">
+      <label><span class="lab">服务器地址<em>留空=同源</em></span></label>
+      <input class="input wide" data-field="apiBase" value="${escapeHTML(auth.apiBase)}" placeholder="http://127.0.0.1:8788" spellcheck="false" />
+      <div class="hint">本地运行 <code>node server/index.mjs</code> 后填 http://127.0.0.1:8788；APK 内填你部署的地址。</div>
+    </div>
+  </section>
+
+  <section class="card">
     <div class="card-head"><div class="card-title">收入口径</div></div>
     <div class="field">
       <label><span class="lab">月薪</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="monthlySalary" value="${s.monthlySalary}" min="0" step="100" /><span class="unit">元</span></span></label>
@@ -352,6 +518,7 @@ function settingsHTML() {
         <button class="chip ${Math.abs(s.workDaysPerMonth - 21.75) < 0.001 ? 'active' : ''}" data-act="preset-days" data-value="21.75">法定 21.75 天</button>
         <button class="chip ${Math.abs(s.workDaysPerMonth - monthWorkdays) < 0.001 ? 'active' : ''}" data-act="preset-days" data-value="${monthWorkdays}">本月工作日 ${monthWorkdays} 天</button>
         <button class="chip ${isCustomDays ? 'active' : ''}" data-act="preset-days" data-value="custom">自定义</button>
+        ${schedCount > 0 ? `<button class="chip ${Math.abs(s.workDaysPerMonth - schedCount) < 0.001 ? 'active' : ''}" data-act="preset-days" data-value="${schedCount}">按排班 ${schedCount} 天</button>` : ''}
       </div>
       <div class="input-line end">
         <span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="workDaysPerMonth" value="${s.workDaysPerMonth}" min="0.5" step="0.25" /><span class="unit">天</span></span>
@@ -380,14 +547,74 @@ function settingsHTML() {
              <div class="chip-row">
                <button class="chip" data-act="ot-fill" data-value="${legal1.toFixed(2)}">按 1.5 倍填入 ¥${legal1.toFixed(2)}</button>
              </div>
-           </div>`
-        : `<div class="field"><label><span class="lab">平日加班倍率</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="otMultiplier" value="${s.otMultiplier}" min="1" step="0.1" /><span class="unit">×</span></span></label></div>
-           <div class="field"><label><span class="lab">周末加班倍率</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="otWeekendMultiplier" value="${s.otWeekendMultiplier}" min="1" step="0.1" /><span class="unit">×</span></span></label>
+           </div>
+           <div class="field">
+             <label><span class="lab">节假日加班时薪</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="otHolidayRate" value="${s.otHolidayRate}" min="0" step="10" /><span class="unit">元/h</span></span></label>
              <div class="chip-row">
-               <button class="chip" data-act="ot-preset" data-normal="1.5" data-weekend="2">法定基准 1.5× / 2×</button>
-               <button class="chip" data-act="ot-preset" data-normal="1.5" data-weekend="1.5">统一 1.5×</button>
+               <button class="chip" data-act="ot-fill" data-field="otHolidayRate" data-value="${(baseHourly(s) * 3).toFixed(2)}">按 3 倍填入 ¥${(baseHourly(s) * 3).toFixed(2)}</button>
              </div>
            </div>`
+        : `<div class="field"><label><span class="lab">平日加班倍率</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="otMultiplier" value="${s.otMultiplier}" min="1" step="0.1" /><span class="unit">×</span></span></label></div>
+           <div class="field"><label><span class="lab">周末加班倍率</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="otWeekendMultiplier" value="${s.otWeekendMultiplier}" min="1" step="0.1" /><span class="unit">×</span></span></label></div>
+           <div class="field"><label><span class="lab">节假日加班倍率</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="otHolidayMultiplier" value="${s.otHolidayMultiplier}" min="1" step="0.5" /><span class="unit">×</span></span></label>
+             <div class="chip-row">
+               <button class="chip" data-act="ot-preset" data-normal="1.5" data-weekend="2" data-holiday="3">法定基准 1.5× / 2× / 3×</button>
+               <button class="chip" data-act="ot-preset" data-normal="1.5" data-weekend="1.5" data-holiday="1.5">统一 1.5×</button>
+             </div>
+           </div>`
+    }
+  </section>
+
+  <section class="card">
+    <div class="card-head"><div class="card-title">法定节假日</div><span class="tag">加班费率更高</span></div>
+    ${
+      s.holidays.length
+        ? `<div class="chip-row">${s.holidays
+            .map((d) => `<button class="chip" data-act="rm-holiday" data-date="${d}">${d.slice(5)} ×</button>`)
+            .join('')}</div>`
+        : '<div class="hint">还没有添加节假日。添加后，这一天的加班按节假日费率计算。</div>'
+    }
+    <div class="loc-actions">
+      <input type="date" id="holiday-date" class="input date" />
+      <button class="btn ghost sm" data-act="add-holiday">添加节假日</button>
+    </div>
+    <div class="hint">只影响加班金额，不影响打卡。法定节假日参考 3 倍；列表需按年手动维护。</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><div class="card-title">排班制</div><span class="tag">${s.shiftMode ? '已开启' : '固定工时'}</span></div>
+    <div class="seg">
+      <button data-act="shift-mode" data-value="off" class="${!s.shiftMode ? 'active' : ''}">固定工时</button>
+      <button data-act="shift-mode" data-value="on" class="${s.shiftMode ? 'active' : ''}">排班制</button>
+    </div>
+    ${
+      s.shiftMode
+        ? `<div class="loc" style="margin-top:10px">
+             <div class="loc-ico">🗓</div>
+             <div class="loc-main">
+               <b>今日${todaySchedule ? `排班 ${todaySchedule.start} – ${todaySchedule.end}` : '休息'}</b>
+               <small>没有排班的日期视为休息日</small>
+             </div>
+           </div>
+           <div class="input-line end">
+             <input type="date" id="shift-date" class="input date" value="${dateKey(new Date())}" />
+             <input type="time" id="shift-start" class="input time" value="09:00" />
+             <input type="time" id="shift-end" class="input time" value="18:00" />
+           </div>
+           <div class="loc-actions">
+             <button class="btn ghost sm" data-act="set-shift">设为工作日</button>
+             <button class="btn ghost sm" data-act="clear-shift">设为休息日</button>
+           </div>
+           <div class="field">
+             <button class="btn ghost block" data-act="import-shift">导入排班表（CSV / JSON）</button>
+             <input type="file" id="shift-file" accept=".csv,.json,text/csv,application/json" hidden />
+             <div class="hint">CSV：2026-11-01,09:00,18:00；JSON：{"2026-11-01":{"start":"09:00","end":"18:00"}}。导入会合并到现有排班。</div>
+           </div>
+           <div class="loc-actions">
+             <span class="hint">本月已排 ${schedCount} 天</span>
+             <button class="btn ghost sm" data-act="clear-schedule">清空本月排班</button>
+           </div>`
+        : '<div class="hint">开启后可按日期设置上下班时间，或在设置页导入 CSV / JSON 排班表；月计薪天数可一键按排班天数计算。</div>'
     }
   </section>
 
@@ -905,6 +1132,136 @@ function openCalib(mk) {
   });
 }
 
+function openAuth(mode) {
+  const root = $('#modal-root');
+  const isLogin = mode === 'login';
+  root.innerHTML = `<div class="overlay"><div class="sheet" role="dialog" aria-modal="true">
+    <h3>${isLogin ? '登录' : '注册'}</h3>
+    <div class="sheet-body">
+      <p>${isLogin ? '登录后会把本机记录与云端记录合并。' : '注册后数据保存在你配置的服务器，换设备登录即可取回。'}</p>
+      <div class="form-field"><label>用户名</label><input id="auth-user" autocomplete="username" placeholder="3–24 位字母/数字" /></div>
+      <div class="form-field"><label>密码</label><input id="auth-pass" type="password" autocomplete="${isLogin ? 'current-password' : 'new-password'}" placeholder="至少 6 位" /></div>
+      <div class="form-field" id="auth-error" style="color:var(--red);font-size:12px;display:none"></div>
+      <div class="form-field" style="font-size:11.5px;color:var(--muted);word-break:break-all">服务器：${escapeHTML(auth.apiBase || location.origin)}</div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn primary" data-auth="submit">${isLogin ? '登录' : '注册并登录'}</button>
+      <button class="btn ghost" data-auth="close">取消</button>
+    </div>
+  </div></div>`;
+
+  const overlay = root.firstElementChild;
+  const errorEl = overlay.querySelector('#auth-error');
+  const close = () => {
+    root.innerHTML = '';
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  document.addEventListener('keydown', onKey);
+
+  const submit = async () => {
+    const username = overlay.querySelector('#auth-user').value.trim();
+    const password = overlay.querySelector('#auth-pass').value;
+    errorEl.style.display = 'none';
+    if (!username || !password) {
+      errorEl.textContent = '请填写用户名和密码';
+      errorEl.style.display = 'block';
+      return;
+    }
+    const btn = overlay.querySelector('[data-auth="submit"]');
+    btn.disabled = true;
+    btn.textContent = '请稍候…';
+    try {
+      const res = await apiFetch(`/api/auth/${isLogin ? 'login' : 'register'}`, {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+      auth = { ...auth, token: res.token, username: res.user.username, lastSync: 0 };
+      saveAuth();
+      close();
+      await afterLogin();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = isLogin ? '登录' : '注册并登录';
+    }
+  };
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) return close();
+    const btn = e.target.closest('[data-auth]');
+    if (!btn) return;
+    if (btn.dataset.auth === 'close') return close();
+    submit();
+  });
+  overlay.querySelector('#auth-pass').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+  });
+}
+
+async function afterLogin() {
+  try {
+    const cloud = await syncPull();
+    if (cloud && cloud.data) {
+      state = mergeData(state, cloud.data);
+      save();
+    }
+    await syncPush();
+    render();
+    toast(`已登录 ${auth.username}，记录已同步`);
+  } catch (err) {
+    render();
+    toast(`已登录，但同步失败：${err.message}`);
+  }
+}
+
+function parseSchedule(text) {
+  const out = {};
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return out;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const json = JSON.parse(trimmed);
+    if (Array.isArray(json)) {
+      json.forEach((item) => {
+        if (item && item.date && item.start) {
+          out[item.date] = { start: item.start, end: item.end || '18:00' };
+        }
+      });
+    } else {
+      Object.entries(json).forEach(([key, value]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return;
+        if (typeof value === 'string') out[key] = { start: value, end: '18:00' };
+        else if (value && value.start) out[key] = { start: value.start, end: value.end || '18:00' };
+      });
+    }
+    return out;
+  }
+  trimmed.split(/\r?\n/).forEach((line) => {
+    const cells = line.split(',').map((c) => c.trim());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cells[0] || '')) return;
+    out[cells[0]] = { start: cells[1] || '09:00', end: cells[2] || '18:00' };
+  });
+  return out;
+}
+
+async function importScheduleFile(file) {
+  if (!file) return;
+  try {
+    const parsed = parseSchedule(await file.text());
+    const dates = Object.keys(parsed);
+    if (!dates.length) return toast('没有解析到排班，请检查格式');
+    Object.assign(state.settings.schedule, parsed);
+    save();
+    render();
+    toast(`已导入 ${dates.length} 天排班`);
+  } catch (err) {
+    toast(`导入失败：${err.message}`);
+  }
+}
+
 function exportJSON() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1026,17 +1383,100 @@ const actions = {
   },
   'ot-fill': (el) => {
     const v = Number(el.dataset.value);
-    state.settings.otFixedRate = v;
+    const field = el.dataset.field || 'otFixedRate';
+    state.settings[field] = v;
     save();
     render();
-    toast(`加班时薪已填入 ¥${fmtMoney(v)}/h`);
+    toast(`已填入 ¥${fmtMoney(v)}/h`);
   },
   'ot-preset': (el) => {
     state.settings.otMultiplier = Number(el.dataset.normal);
     state.settings.otWeekendMultiplier = Number(el.dataset.weekend);
+    if (el.dataset.holiday) state.settings.otHolidayMultiplier = Number(el.dataset.holiday);
     save();
     render();
     toast(`倍率已填入 ${el.dataset.normal}× / ${el.dataset.weekend}×`);
+  },
+  'add-holiday': () => {
+    const input = document.getElementById('holiday-date');
+    const date = input && input.value;
+    if (!date) return toast('请先选择日期');
+    if (!state.settings.holidays.includes(date)) state.settings.holidays.push(date);
+    state.settings.holidays.sort();
+    save();
+    render();
+    toast(`已添加节假日 ${date}`);
+  },
+  'rm-holiday': (el) => {
+    state.settings.holidays = state.settings.holidays.filter((d) => d !== el.dataset.date);
+    save();
+    render();
+  },
+  'shift-mode': (el) => {
+    state.settings.shiftMode = el.dataset.value === 'on';
+    save();
+    render();
+  },
+  'set-shift': () => {
+    const date = document.getElementById('shift-date')?.value;
+    const start = document.getElementById('shift-start')?.value;
+    const end = document.getElementById('shift-end')?.value;
+    if (!date || !start || !end) return toast('请填写日期与上下班时间');
+    if (!(start < end)) return toast('下班时间需要晚于上班时间');
+    state.settings.schedule[date] = { start, end };
+    save();
+    render();
+    toast(`已排班 ${date} ${start}–${end}`);
+  },
+  'clear-shift': () => {
+    const date = document.getElementById('shift-date')?.value;
+    if (!date) return toast('请先选择日期');
+    delete state.settings.schedule[date];
+    save();
+    render();
+    toast(`已将 ${date} 设为休息日`);
+  },
+  'import-shift': () => document.getElementById('shift-file')?.click(),
+  'clear-schedule': async () => {
+    const mk = monthKeyOf(dateKey(new Date()));
+    const r = await openSheet({
+      title: '清空本月排班？',
+      body: `${monthLabel(mk)} 的排班记录会被删除，打卡记录不受影响。`,
+      actions: [
+        { label: '清空', value: 'ok', variant: 'danger' },
+        { label: '取消', value: null },
+      ],
+    });
+    if (!r || r.value !== 'ok') return;
+    Object.keys(state.settings.schedule).forEach((k) => {
+      if (k.startsWith(mk)) delete state.settings.schedule[k];
+    });
+    save();
+    render();
+    toast('已清空本月排班');
+  },
+  login: () => openAuth('login'),
+  register: () => openAuth('register'),
+  logout: async () => {
+    const r = await openSheet({
+      title: '退出登录？',
+      body: '本机打卡记录会保留，只是不再自动同步。',
+      actions: [
+        { label: '退出', value: 'ok', variant: 'danger' },
+        { label: '取消', value: null },
+      ],
+    });
+    if (!r || r.value !== 'ok') return;
+    auth = { ...auth, token: '', username: '', lastSync: 0 };
+    saveAuth();
+    render();
+    toast('已退出登录');
+  },
+  'sync-now': () => syncNow(true),
+  autosync: (el) => {
+    auth.autoSync = el.dataset.value === 'on';
+    saveAuth();
+    render();
   },
   calib: (el) => openCalib(el.dataset.month || recordsMonth),
   'calib-clear': async (el) => {
@@ -1083,6 +1523,11 @@ document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-field]');
   if (!el || tab !== 'settings') return;
   const field = el.dataset.field;
+  if (field === 'apiBase') {
+    auth.apiBase = el.value.trim();
+    saveAuth();
+    return;
+  }
   let v = parseFloat(el.value);
   if (!Number.isFinite(v)) v = 0;
 
@@ -1097,6 +1542,12 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'shift-file') {
+    importScheduleFile(e.target.files && e.target.files[0]);
+    e.target.value = '';
+    return;
+  }
+  if (e.target && e.target.dataset && e.target.dataset.field === 'apiBase') return;
   const el = e.target.closest('[data-field]');
   if (!el || tab !== 'settings') return;
   const s = state.settings;
