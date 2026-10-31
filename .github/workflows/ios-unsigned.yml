@@ -79,16 +79,3 @@ jobs:
           name: SalaryClock-ios-unsigned
           path: dist/SalaryClock-ios-unsigned.ipa
           if-no-files-found: error
-
-      - name: Commit IPA back to repo
-        if: github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dist/SalaryClock-ios-unsigned.ipa
-          if git diff --cached --quiet; then
-            echo "IPA 无变化，跳过提交"
-            exit 0
-          fi
-          git commit -m "chore: 自动构建 iOS 未签名 IPA [skip ci]"
-          git push
