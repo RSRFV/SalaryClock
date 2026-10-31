@@ -20,6 +20,10 @@ import {
   leaveCredit,
   shiftLabel,
   shiftOf,
+  paidWorkMs,
+  lunchWindow,
+  lunchOverlapMs,
+  segmentPay,
   scheduleOf,
   scheduledWorkdays,
   parseDateKey,
@@ -174,6 +178,22 @@ test('请假：照常计薪，无打卡记录也计入月汇总', () => {
   near(daySummary({ date, segments: [] }, s).pay, credit);
   near(monthSummary({}, s, '2026-11').pay, credit);
   assert.equal(monthSummary({}, s, '2026-11').dayCount, 1);
+});
+
+test('午休：不计薪时扣除重叠，计薪时照常', () => {
+  const s = { ...S, lunchStart: '12:00', lunchEnd: '13:00', lunchPaid: false };
+  const date = '2026-11-02';
+  const base = parseDateKey(date).getTime();
+  const day = { date, segments: [{ t: 'normal', s: base + 9 * 3600e3, e: base + 18 * 3600e3 }] };
+  const d = daySummary(day, s);
+  near(d.pay, baseHourly(s) * 8);
+  near(d.unpaidLunchMs, 3600e3);
+  near(paidWorkMs(day, s, base + 18 * 3600e3), 8 * 3600e3);
+  near(segmentPay(day.segments[0], s, date, base + 18 * 3600e3), baseHourly(s) * 8);
+
+  const paid = { ...s, lunchPaid: true };
+  near(daySummary(day, paid).pay, baseHourly(s) * 9);
+  assert.equal(daySummary(day, paid).unpaidLunchMs, 0);
 });
 
 test('合规提示：100/h 低于 1.5 倍参考线会提示', () => {

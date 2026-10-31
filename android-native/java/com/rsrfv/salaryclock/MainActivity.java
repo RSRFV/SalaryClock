@@ -2,6 +2,7 @@ package com.rsrfv.salaryclock;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -14,6 +15,7 @@ import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -37,7 +39,9 @@ import java.util.TimeZone;
 public class MainActivity extends Activity {
 
     private static final String ORIGIN = "https://salaryclock.local";
+    private static final int FILE_CHOOSER_REQUEST = 2001;
     private WebView web;
+    private ValueCallback<Uri[]> filePathCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,6 +69,25 @@ public class MainActivity extends Activity {
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
                 callback.invoke(origin, true, false);
+            }
+
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("image/*");
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "选择图片"), FILE_CHOOSER_REQUEST);
+                    return true;
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
             }
         });
 
@@ -122,7 +145,7 @@ public class MainActivity extends Activity {
                         new String[] { String.valueOf(start.getTimeInMillis()), String.valueOf(end.getTimeInMillis()) },
                         null);
 
-                String[] keywords = { "元旦", "春节", "除夕", "清明", "劳动节", "端午", "中秋", "国庆", "放假" };
+                String[] keywords = { "元旦", "春节", "除夕", "清明", "劳动节", "端午", "中秋", "国庆", "放假", "休息", "休假", "公休", "调休", "假日" };
                 JSONArray dates = new JSONArray();
                 if (cursor != null) {
                     while (cursor.moveToNext()) {
@@ -182,6 +205,22 @@ public class MainActivity extends Activity {
         if (p.endsWith(".svg")) return "image/svg+xml";
         if (p.endsWith(".png")) return "image/png";
         return "application/octet-stream";
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_REQUEST) {
+            Uri[] results = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                results = new Uri[] { data.getData() };
+            }
+            if (filePathCallback != null) {
+                filePathCallback.onReceiveValue(results);
+                filePathCallback = null;
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override

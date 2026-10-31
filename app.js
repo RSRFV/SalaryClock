@@ -32,6 +32,8 @@ import {
   leaveOf,
   leaveCredit,
   hoursBetween,
+  paidWorkMs,
+  lunchWindow,
   scheduledWorkdays,
   distanceMeters,
   fmtDistance,
@@ -419,6 +421,15 @@ function homeHTML() {
     </div>
   </section>
 
+  ${
+    s.lunchPaid
+      ? ''
+      : `<div class="lunch-banner" id="lunch-banner" hidden>
+           <span class="lunch-ico">🍱</span>
+           <span><b>午休中</b> ${s.lunchStart} – ${s.lunchEnd} · 不计薪</span>
+         </div>`
+  }
+
   <div class="actions">${actions}</div>
 
   ${
@@ -590,7 +601,7 @@ function settingsHTML() {
     <div class="field">
       <label><span class="lab">背景图</span></label>
       <div class="loc-actions">
-        <button class="btn ghost sm" data-act="upload-bg">上传背景图</button>
+        <label class="btn ghost sm" for="bg-file">上传背景图</label>
         ${appBg ? '<button class="btn ghost sm" data-act="remove-bg">移除背景</button>' : ''}
         <input type="file" id="bg-file" accept="image/*" hidden />
       </div>
@@ -687,30 +698,25 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">法定节假日</div><span class="tag">加班费率更高</span></div>
-    ${
-      s.holidays.length
-        ? `<div class="chip-row">${s.holidays
-            .map((d) => `<button class="chip" data-act="rm-holiday" data-date="${d}">${d.slice(5)} ×</button>`)
-            .join('')}</div>`
-        : '<div class="hint">还没有添加节假日。添加后，这一天的加班按节假日费率计算。</div>'
-    }
-    <div class="loc-actions">
-      <input type="date" id="holiday-date" class="input date" />
-      <button class="btn ghost sm" data-act="add-holiday">添加节假日</button>
-    </div>
-    <div class="loc-actions">
-      <span class="hint">自动来源：${s.holidaySource === 'calendar' ? '本机日历' : s.holidaySource === 'server' ? '服务器' : s.holidaySource === 'cache' ? '缓存' : s.holidaySource === 'failed' ? '读取失败' : '未同步'}${s.holidaySyncedAt ? ` · ${new Date(s.holidaySyncedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}</span>
-      <button class="btn ghost sm" data-act="sync-holidays">重新读取</button>
-    </div>
-    <div class="hint">打开 App 会自动读取本机日历里的节假日（Android），读不到时回退到服务器日历；只影响加班金额。</div>
-  </section>
-
-  <section class="card">
     <div class="card-head"><div class="card-title">工时计算</div><span class="tag">${s.shiftMode ? '排班制' : '固定工时'}</span></div>
     <div class="seg">
       <button data-act="shift-mode" data-value="off" class="${!s.shiftMode ? 'active' : ''}">固定工时</button>
       <button data-act="shift-mode" data-value="on" class="${s.shiftMode ? 'active' : ''}">排班制</button>
+    </div>
+    <div class="field">
+      <label><span class="lab">午休时间</span></label>
+      <div class="input-line end">
+        <input type="time" class="input time" data-field="lunchStart" value="${s.lunchStart}" />
+        <input type="time" class="input time" data-field="lunchEnd" value="${s.lunchEnd}" />
+      </div>
+    </div>
+    <div class="field">
+      <label><span class="lab">午休是否计薪</span></label>
+      <div class="seg">
+        <button data-act="lunch-paid" data-value="off" class="${!s.lunchPaid ? 'active' : ''}">不计薪</button>
+        <button data-act="lunch-paid" data-value="on" class="${s.lunchPaid ? 'active' : ''}">计薪</button>
+      </div>
+      <div class="hint">不计薪时，午休时段即使没打下班卡也不计入收入；首页会提示午休中。</div>
     </div>
     ${
       s.shiftMode
@@ -729,7 +735,7 @@ function settingsHTML() {
              <div class="hint">默认班次是第一个；点击排班日历给某一天选班次或休息。</div>
            </div>
            <div class="loc-actions">
-             <button class="btn ghost sm" data-act="import-shift">导入 CSV/JSON</button>
+             <label class="btn ghost sm" for="shift-file">导入 CSV/JSON</label>
              <input type="file" id="shift-file" accept=".csv,.json,text/csv,application/json" hidden />
            </div>
            <div class="hint">班次、请假、休息都在顶部「日历 → 排班」里设置；本月上班 ${schedCount} 天。</div>`
@@ -803,6 +809,14 @@ function settingsHTML() {
              <label><span class="lab">WiFi 名称</span></label>
              <input class="input wide" data-field="wifiSsid" value="${escapeHTML(s.wifiSsid)}" placeholder="Office-5G" />
            </div>
+           <div class="field">
+             <label><span class="lab">满足标准工时自动下班</span></label>
+             <div class="seg">
+               <button data-act="auto-clockout" data-value="on" class="${s.autoClockOut ? 'active' : ''}">开</button>
+               <button data-act="auto-clockout" data-value="off" class="${!s.autoClockOut ? 'active' : ''}">关</button>
+             </div>
+             <div class="hint">开启后，从上班打卡开始累计可计薪工时，达到每日标准工时自动下班。</div>
+           </div>
            <div class="hint">自动打卡需 App 在前台；浏览器读不到 WiFi 名称，仅 Android 壳支持。定位每 60 秒检查一次，当天已有记录不会重复打卡。</div>`
         : '<div class="hint">到公司后手动点「打卡上班」；切到自动后，进入公司范围或连上指定 WiFi 会自动开始计时。</div>'
     }
@@ -817,7 +831,7 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.6.0</span></div>
+    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.7.0</span></div>
     <div class="about">
       <b>时薪时钟 SalaryClock</b> — 把月薪换算成看得见的每秒收入。<br>
       数据默认只保存在本机；登录后会同步到你配置的服务器。<br>
@@ -881,6 +895,13 @@ function refreshLive() {
   }
   const dot = $('#live-dot');
   if (dot) dot.hidden = mode === 'idle';
+
+  const banner = document.getElementById('lunch-banner');
+  if (banner) {
+    const win = lunchWindow(s, tk);
+    const now = Date.now();
+    banner.hidden = !(win && now >= win.start && now < win.end);
+  }
 }
 
 function updateClockText() {
@@ -897,7 +918,25 @@ function tick() {
     render();
     return;
   }
+  maybeAutoClockOut();
   refreshLive();
+}
+
+/** 自动下班：自动模式 + 已满足标准工时（正常工时扣除未计薪午休） */
+function maybeAutoClockOut() {
+  const s = state.settings;
+  if (!s.autoClockOut || s.checkInMode !== 'auto') return;
+  const active = findActive();
+  if (!active || active.seg.t !== 'normal') return;
+  const day = state.days[dateKey(new Date())];
+  const need = Number(s.hoursPerDay) * 3600000;
+  if (!(need > 0)) return;
+  if (paidWorkMs(day, s) >= need) {
+    active.seg.e = Date.now();
+    save();
+    render();
+    toast('已按标准工时自动打下班卡');
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1030,15 +1069,8 @@ async function locationGate() {
   if (d <= radius) return { ok: true, distance: d };
 
   if (s.geofenceMode === 'loose') {
-    const r = await openSheet({
-      title: '好像不在公司附近',
-      body: `当前位置距公司约 <b>${fmtDistance(d)}</b>，超出 ${radius}m 的校验范围。仍要打卡吗？`,
-      actions: [
-        { label: '仍然打卡', value: 'go', variant: 'primary' },
-        { label: '取消', value: null },
-      ],
-    });
-    return r && r.value === 'go' ? { ok: true, manual: true, distance: d } : { ok: false };
+    toast(`距公司约 ${fmtDistance(d)}，按已记录的位置继续打卡`);
+    return { ok: true, manual: true, distance: d };
   }
 
   const r = await openSheet({
@@ -1661,6 +1693,11 @@ async function syncHolidaysAuto(force = false) {
 
     if (dates.length) {
       state.settings.holidays = [...new Set([...state.settings.holidays, ...dates])].sort();
+      // 日历里的节假日 / 非工作日 → 排班统一标记为休息；其余日期保持默认班次（早班）
+      for (const date of dates) {
+        const entry = state.settings.schedule[date];
+        if (!entry || entry.rest) state.settings.schedule[date] = { rest: true };
+      }
       state.settings.holidaySource = source;
       state.settings.holidaySyncedAt = Date.now();
       save();
@@ -2022,6 +2059,16 @@ const actions = {
     save();
     render();
   },
+  'auto-clockout': (el) => {
+    state.settings.autoClockOut = el.dataset.value === 'on';
+    save();
+    render();
+  },
+  'lunch-paid': (el) => {
+    state.settings.lunchPaid = el.dataset.value === 'on';
+    save();
+    render();
+  },
   export: () => exportJSON(),
   wipe: () => wipeAll(),
   demo: () => {
@@ -2041,7 +2088,7 @@ document.addEventListener('click', (e) => {
   fn(el);
 });
 
-const STRING_FIELDS = ['apiBase', 'wifiSsid', 'shiftStart', 'shiftEnd', 'workStart', 'workEnd'];
+const STRING_FIELDS = ['apiBase', 'wifiSsid', 'shiftStart', 'shiftEnd', 'workStart', 'workEnd', 'lunchStart', 'lunchEnd'];
 
 document.addEventListener('input', (e) => {
   const shiftInput = e.target.closest('[data-shift-name],[data-shift-start],[data-shift-end]');
@@ -2105,6 +2152,11 @@ document.addEventListener('change', (e) => {
     return;
   }
   if (changedField === 'shiftStart' || changedField === 'shiftEnd') {
+    save();
+    render();
+    return;
+  }
+  if (changedField === 'lunchStart' || changedField === 'lunchEnd') {
     save();
     render();
     return;

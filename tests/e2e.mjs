@@ -324,6 +324,11 @@ await sleep(1200);
 st = await readState();
 check('自动读取节假日（服务器回退）', (st.settings.holidays || []).includes('2026-10-01'), JSON.stringify(st.settings.holidays));
 check('记录节假日来源', st.settings.holidaySource === 'server', String(st.settings.holidaySource));
+check(
+  '节假日自动标记为休息班',
+  st.settings.schedule?.['2026-10-01']?.rest === true,
+  JSON.stringify(st.settings.schedule?.['2026-10-01']),
+);
 
 // 工时计算：班次类型 + 排班日历选择班次
 await evaluate(`document.querySelector('[data-act="shift-mode"][data-value="on"]').click(); 1`);
@@ -420,12 +425,12 @@ if (token) {
   );
   check('登录后已推送记录到云端', remote.hasData === true && remote.days >= 1, JSON.stringify(remote));
 
-  await evaluate(`document.getElementById('holiday-date').value = '2026-01-01'; document.querySelector('[data-act="add-holiday"]').click(); 1`);
+  await evaluate(`document.querySelector('[data-act="lunch-paid"][data-value="on"]').click(); 1`);
   await sleep(3800);
   const remote2 = await evaluate(
-    `fetch('http://127.0.0.1:8788/api/sync', { headers: { authorization: 'Bearer ${token}' } }).then((r) => r.json()).then((j) => (j.data && j.data.settings && j.data.settings.holidays) || [])`,
+    `fetch('http://127.0.0.1:8788/api/sync', { headers: { authorization: 'Bearer ${token}' } }).then((r) => r.json()).then((j) => (j.data && j.data.settings && j.data.settings.lunchPaid))`,
   );
-  check('自动同步把节假日推送到云端', remote2.includes('2026-01-01'), JSON.stringify(remote2));
+  check('自动同步推送设置到云端', remote2 === true, String(remote2));
 
   await evaluate(`document.querySelector('[data-act="logout"]').click(); 1`);
   await sleep(300);
@@ -469,6 +474,34 @@ check('自动打卡后进入正常计时', (await evaluate(`document.getElementB
 await evaluate(`window.__salaryClockAutoCheckIn(); 1`);
 await sleep(400);
 check('同一天不再重复弹窗', !(await evaluate(`!!document.querySelector('.sheet h3')`)));
+
+// 12. 午休与自动下班
+await evaluate(`(() => {
+  const raw = JSON.parse(localStorage.getItem('salary-clock-v1') || '{}');
+  const now = Date.now();
+  const p = (n) => String(n).padStart(2, '0');
+  const d = new Date();
+  const today = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  raw.settings = Object.assign({}, raw.settings, {
+    checkInMode: 'auto',
+    autoClockOut: true,
+    autoWifi: false,
+    autoGeofence: false,
+    hoursPerDay: 8,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    lunchPaid: false,
+  });
+  raw.days = { [today]: { date: today, segments: [{ t: 'normal', s: now - 9 * 3600e3, e: null }] } };
+  localStorage.setItem('salary-clock-v1', JSON.stringify(raw));
+  return 1;
+})()`);
+await reload();
+await sleep(1500);
+st = await readState();
+const activeAfter = Object.values(st.days || {}).flatMap((d) => d.segments || []).find((s) => s.e == null);
+check('午休不计薪计入标准工时后自动下班', !activeAfter, JSON.stringify(activeAfter || null));
+check('午休配置已保存', st.settings.lunchStart === '12:00' && st.settings.lunchPaid === false);
 
 // 10. 无脚本异常
 check('运行时无未捕获异常', exceptions.length === 0, exceptions.join(' | '));

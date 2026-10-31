@@ -39,6 +39,12 @@ export const DEFAULT_SETTINGS = {
   autoGeofence: true,        // 自动模式：进入公司范围自动打卡
   autoWifi: false,           // 自动模式：连接指定 WiFi 自动打卡
   wifiSsid: '',              // 指定 WiFi 名称（需 Android 壳支持读取）
+  autoClockOut: false,       // 自动模式：满足标准工时后自动下班
+
+  // 午休
+  lunchStart: '12:00',
+  lunchEnd: '13:00',
+  lunchPaid: false,          // 午休是否计薪
 
   // 位置
   geofenceMode: 'loose',     // 'off' 关闭 | 'loose' 提醒 | 'strict' 拦截
@@ -199,10 +205,36 @@ export function segmentMs(seg, now = Date.now()) {
   return Math.max(0, end - seg.s);
 }
 
-/** 单段薪资 */
+/** 单段薪资（正常工时扣除未计薪午休） */
 export function segmentPay(seg, settings, dateStr, now = Date.now()) {
-  const hours = segmentMs(seg, now) / 3600000;
+  let ms = segmentMs(seg, now);
+  if (seg.t === 'normal') ms -= lunchOverlapMs(seg, dateStr, settings, now);
+  const hours = Math.max(0, ms) / 3600000;
   return hours * rateFor(settings, seg.t, dateStr);
+}
+
+/** 当天的午休时间窗（毫秒） */
+export function lunchWindow(settings, dateStr) {
+  if (!settings || !settings.lunchStart || !settings.lunchEnd) return null;
+  const base = parseDateKey(dateStr).getTime();
+  const at = (t) => {
+    const [h, m] = String(t).split(':').map(Number);
+    return base + h * 3600000 + m * 60000;
+  };
+  const start = at(settings.lunchStart);
+  let end = at(settings.lunchEnd);
+  if (end <= start) end += 86400000;
+  return { start, end };
+}
+
+/** 某计时段与午休的重叠毫秒数；午休计薪时为 0 */
+export function lunchOverlapMs(seg, dateStr, settings, now = Date.now()) {
+  if (!settings || settings.lunchPaid) return 0;
+  const w = lunchWindow(settings, dateStr);
+  if (!w) return 0;
+  const segEnd = seg.e == null ? now : seg.e;
+  const overlap = Math.min(segEnd, w.end) - Math.max(seg.s, w.start);
+  return Math.max(0, overlap);
 }
 
 export const EMPTY_DAY = {
@@ -213,22 +245,42 @@ export const EMPTY_DAY = {
   active: null,
 };
 
-/** 一天的汇总（含请假日照常计薪） */
+/** 一天的汇总（含请假日照常计薪、正常工时扣除未计薪午休） */
 export function daySummary(day, settings, now = Date.now()) {
   if (!day || !Array.isArray(day.segments)) return { ...EMPTY_DAY };
   let normalMs = 0;
   let otMs = 0;
   let pay = 0;
+  let unpaidLunchMs = 0;
   let active = null;
   for (const seg of day.segments) {
     const ms = segmentMs(seg, now);
-    pay += (ms / 3600000) * rateFor(settings, seg.t, day.date);
-    if (seg.t === 'overtime') otMs += ms;
-    else normalMs += ms;
+    let payableMs = ms;
+    if (seg.t === 'normal') {
+      const lunch = lunchOverlapMs(seg, day.date, settings, now);
+      unpaidLunchMs += lunch;
+      payableMs = Math.max(0, ms - lunch);
+      normalMs += ms;
+    } else {
+      otMs += ms;
+    }
+    pay += (payableMs / 3600000) * rateFor(settings, seg.t, day.date);
     if (seg.e == null) active = seg;
   }
   const leavePay = leaveCredit(settings, day.date);
-  return { normalMs, otMs, totalMs: normalMs + otMs, pay: pay + leavePay, leavePay, active };
+  return { normalMs, otMs, totalMs: normalMs + otMs, pay: pay + leavePay, leavePay, unpaidLunchMs, active };
+}
+
+/** 今日已累计的可计薪正常工时（用于自动下班） */
+export function paidWorkMs(day, settings, now = Date.now()) {
+  if (!day || !Array.isArray(day.segments)) return 0;
+  let ms = 0;
+  for (const seg of day.segments) {
+    if (seg.t !== 'normal') continue;
+    const total = segmentMs(seg, now);
+    ms += Math.max(0, total - lunchOverlapMs(seg, day.date, settings, now));
+  }
+  return ms;
 }
 
 /** 一个月（YYYY-MM）的汇总，now 用于计算进行中的时段 */
