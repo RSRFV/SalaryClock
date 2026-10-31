@@ -27,6 +27,9 @@ import {
   isRestDay,
   daysInMonth,
   scheduleOf,
+  shiftOf,
+  shiftLabel,
+  hoursBetween,
   scheduledWorkdays,
   distanceMeters,
   fmtDistance,
@@ -164,6 +167,18 @@ function loadState() {
   }
   const settings = { ...DEFAULT_SETTINGS, ...(raw && raw.settings ? raw.settings : {}) };
   if (!THEMES.includes(settings.theme)) settings.theme = DEFAULT_SETTINGS.theme;
+  if (!['legal', 'auto', 'custom'].includes(settings.workDaysMode)) {
+    settings.workDaysMode = Math.abs(settings.workDaysPerMonth - 21.75) < 0.001 ? 'legal' : 'custom';
+  }
+  if (!Array.isArray(settings.shiftTypes) || !settings.shiftTypes.length) {
+    settings.shiftTypes = DEFAULT_SETTINGS.shiftTypes.map((type) => ({ ...type }));
+  }
+  settings.shiftTypes = settings.shiftTypes.map((type, index) => ({
+    id: type.id || `shift${index + 1}`,
+    name: type.name || `班次${index + 1}`,
+    start: type.start || '09:00',
+    end: type.end || '18:00',
+  }));
   if (settings.company && typeof settings.company.lat !== 'number') settings.company = null;
   const days = raw && raw.days && typeof raw.days === 'object' ? raw.days : {};
   const months = raw && raw.months && typeof raw.months === 'object' ? raw.months : {};
@@ -171,12 +186,28 @@ function loadState() {
 }
 
 function save() {
+  applyWorkDays();
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
   } catch (err) {
     console.warn('保存失败', err);
   }
   if (auth && auth.token && auth.autoSync) schedulePush();
+}
+
+/** 按当前计薪模式刷新 workDaysPerMonth */
+function autoWorkDays() {
+  const now = new Date();
+  const s = state.settings;
+  return s.shiftMode
+    ? scheduledWorkdays(s.schedule, monthKeyOf(dateKey(now)))
+    : countWeekdays(now.getFullYear(), now.getMonth());
+}
+
+function applyWorkDays() {
+  const s = state.settings;
+  if (s.workDaysMode === 'legal') s.workDaysPerMonth = 21.75;
+  else if (s.workDaysMode === 'auto') s.workDaysPerMonth = autoWorkDays();
 }
 
 /** 应用主题：html[data-theme] + 浏览器状态栏颜色 */
@@ -223,6 +254,7 @@ function normalize() {
 /* ------------------------------------------------------------------ */
 
 function render(opts = {}) {
+  applyWorkDays();
   const y = window.scrollY;
   const view = $('#view');
   if (tab === 'home') view.innerHTML = homeHTML();
@@ -266,6 +298,7 @@ function homeHTML() {
   const segs = day ? [...day.segments].sort((a, b) => a.s - b.s) : [];
   const tSch = s.shiftMode ? scheduleOf(s, tk) : null;
   const restToday = s.shiftMode ? isRestDay(s, tk) : false;
+  const tType = s.shiftMode ? shiftOf(s, tk) : null;
 
   const heroClass = mode === 'overtime' ? 'is-ot' : mode === 'normal' ? 'is-normal' : 'is-idle';
   const pillClass = mode === 'overtime' ? 'is-ot' : mode === 'normal' ? 'is-normal' : 'is-idle';
@@ -318,8 +351,8 @@ function homeHTML() {
            <div class="loc">
              <div class="loc-ico">🗓</div>
              <div class="loc-main">
-               <b>今日${restToday ? '休息' : '上班'}</b>
-               <small>${restToday ? '排班日历里标记为休息日' : `上班时间 ${s.shiftStart} – ${s.shiftEnd}`}</small>
+               <b>今日${restToday ? '休息' : ` · ${tType ? tType.name : '上班'}`}</b>
+               <small>${restToday ? '排班日历里标记为休息日' : `${tType ? tType.start : s.workStart} – ${tType ? tType.end : s.workEnd}`}</small>
              </div>
            </div>
          </section>`
@@ -415,7 +448,8 @@ function dayCardHTML(day) {
   const segs = [...day.segments].sort((a, b) => a.s - b.s);
   const sch = s.shiftMode ? scheduleOf(s, day.date) : null;
   const rest = s.shiftMode ? isRestDay(s, day.date) : false;
-  const schedTxt = s.shiftMode ? (rest ? '休息日' : `上班 ${s.shiftStart}–${s.shiftEnd}`) : '';
+  const type = s.shiftMode ? shiftOf(s, day.date) : null;
+  const schedTxt = s.shiftMode ? (rest ? '休息日' : `${type ? type.name : '上班'} ${type ? type.start : s.workStart}–${type ? type.end : s.workEnd}`) : '';
   return `<details class="card day-card">
     <summary>
       <div class="day-date"><b>${day.date.slice(5)}</b><span>${weekdayCN(day.date)}</span></div>
@@ -442,10 +476,13 @@ function settingsHTML() {
   const schedCount = s.shiftMode
     ? scheduledWorkdays(s.schedule, monthKeyOf(dateKey(now)))
     : 0;
+  const autoDays = s.shiftMode ? schedCount : monthWorkdays;
   const restToday = s.shiftMode ? isRestDay(s, dateKey(now)) : false;
-  const isCustomDays =
-    Math.abs(s.workDaysPerMonth - 21.75) > 0.001 &&
-    Math.abs(s.workDaysPerMonth - monthWorkdays) > 0.001;
+  const todayShift = s.shiftMode ? shiftOf(s, dateKey(now)) : null;
+  const todayShiftName = todayShift ? todayShift.name : '上班';
+  const todayShiftStart = todayShift ? todayShift.start : s.shiftStart;
+  const todayShiftEnd = todayShift ? todayShift.end : s.shiftEnd;
+  const fixedHours = hoursBetween(s.workStart, s.workEnd);
   const legal1 = bh * 1.5;
 
   return `
@@ -519,19 +556,14 @@ function settingsHTML() {
     <div class="field">
       <label><span class="lab">月计薪天数<em>时薪换算口径</em></span></label>
       <div class="chip-row">
-        <button class="chip ${Math.abs(s.workDaysPerMonth - 21.75) < 0.001 ? 'active' : ''}" data-act="preset-days" data-value="21.75">法定 21.75 天</button>
-        <button class="chip ${Math.abs(s.workDaysPerMonth - monthWorkdays) < 0.001 ? 'active' : ''}" data-act="preset-days" data-value="${monthWorkdays}">本月工作日 ${monthWorkdays} 天</button>
-        <button class="chip ${isCustomDays ? 'active' : ''}" data-act="preset-days" data-value="custom">自定义</button>
-        ${schedCount > 0 ? `<button class="chip ${Math.abs(s.workDaysPerMonth - schedCount) < 0.001 ? 'active' : ''}" data-act="preset-days" data-value="${schedCount}">按排班 ${schedCount} 天</button>` : ''}
+        <button class="chip ${s.workDaysMode === 'legal' ? 'active' : ''}" data-act="workdays-mode" data-value="legal">法定 21.75 天</button>
+        <button class="chip ${s.workDaysMode === 'auto' ? 'active' : ''}" data-act="workdays-mode" data-value="auto">不固定 ${autoDays} 天</button>
+        <button class="chip ${s.workDaysMode === 'custom' ? 'active' : ''}" data-act="workdays-mode" data-value="custom">自定义</button>
       </div>
-      <div class="input-line end">
+      ${s.workDaysMode === 'custom' ? `<div class="input-line end">
         <span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="workDaysPerMonth" value="${s.workDaysPerMonth}" min="0.5" step="0.25" /><span class="unit">天</span></span>
-      </div>
-      <div class="hint">法定 21.75 = (365 − 104) ÷ 12；「本月工作日」只排除周末，未扣法定节假日。</div>
-    </div>
-    <div class="field">
-      <label><span class="lab">每日标准工时</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="hoursPerDay" value="${s.hoursPerDay}" min="1" step="0.5" /><span class="unit">时</span></span></label>
-      <div class="hint">时薪 = 月薪 ÷ 月计薪天数 ÷ 每日工时。改天数即可切换"法定口径 / 真实出勤口径"。</div>
+      </div>` : ''}
+      <div class="hint">${s.workDaysMode === 'legal' ? '固定按法定 21.75 天折算。' : s.workDaysMode === 'auto' ? `按本月实际工作日 ${autoDays} 天折算，随月份与排班自动更新。` : '手动输入天数，用于特殊考勤周期。'}</div>
     </div>
   </section>
 
@@ -590,34 +622,53 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">排班制</div><span class="tag">${s.shiftMode ? '已开启' : '固定工时'}</span></div>
+    <div class="card-head"><div class="card-title">工时计算</div><span class="tag">${s.shiftMode ? '排班制' : '固定工时'}</span></div>
     <div class="seg">
       <button data-act="shift-mode" data-value="off" class="${!s.shiftMode ? 'active' : ''}">固定工时</button>
       <button data-act="shift-mode" data-value="on" class="${s.shiftMode ? 'active' : ''}">排班制</button>
     </div>
     ${
       s.shiftMode
-        ? `<div class="loc" style="margin-top:10px">
+        ? `<div class="field">
+             <label><span class="lab">班次类型</span><button class="btn ghost sm" data-act="add-shift-type">＋ 添加</button></label>
+             ${s.shiftTypes
+               .map(
+                 (type) => `<div class="shift-row">
+                   <input class="input shift-name" data-shift-name="${type.id}" value="${escapeHTML(type.name)}" placeholder="班次名" />
+                   <input class="input time" type="time" data-shift-start="${type.id}" value="${type.start}" />
+                   <input class="input time" type="time" data-shift-end="${type.id}" value="${type.end}" />
+                   <button class="btn ghost sm" data-act="rm-shift-type" data-id="${type.id}">×</button>
+                 </div>`,
+               )
+               .join('')}
+             <div class="hint">默认班次是第一个；点击排班日历给某一天选班次或休息。</div>
+           </div>
+           <div class="loc">
              <div class="loc-ico">🗓</div>
              <div class="loc-main">
-               <b>今日${restToday ? '休息' : '上班'}</b>
-               <small>${restToday ? '在排班日历里被标记为休息日' : `上班时间 ${s.shiftStart} – ${s.shiftEnd}`}</small>
+               <b>今日${restToday ? '休息' : ` · ${todayShiftName}`}</b>
+               <small>${restToday ? '排班日历里标记为休息日' : `${todayShiftStart} – ${todayShiftEnd}`}</small>
              </div>
-           </div>
-           <div class="input-line end">
-             <input type="time" class="input time" data-field="shiftStart" value="${s.shiftStart}" />
-             <input type="time" class="input time" data-field="shiftEnd" value="${s.shiftEnd}" />
            </div>
            <div class="loc-actions">
              <button class="btn primary sm" data-act="shift-calendar">打开排班日历</button>
              <button class="btn ghost sm" data-act="import-shift">导入 CSV/JSON</button>
              <input type="file" id="shift-file" accept=".csv,.json,text/csv,application/json" hidden />
            </div>
-           <div class="hint">点一下日期 = 休息日，再点一下 = 上班日；不点的默认上班。本月上班 ${schedCount} 天。</div>
-           <div class="loc-actions">
-             <button class="btn ghost sm" data-act="clear-schedule">清空本月休息标记</button>
-           </div>`
-        : '<div class="hint">开启后打开排班日历，点击日期即可标记休息；未标记的日期默认上班。</div>'
+           <div class="hint">本月上班 ${schedCount} 天；点击日期可设为早/中/晚班或休息。</div>
+           <div class="loc-actions"><button class="btn ghost sm" data-act="clear-schedule">清空本月排班</button></div>`
+        : `<div class="input-line end">
+             <input type="time" class="input time" data-field="workStart" value="${s.workStart}" />
+             <input type="time" class="input time" data-field="workEnd" value="${s.workEnd}" />
+           </div>
+           <div class="loc-actions" style="justify-content:space-between">
+             <span class="hint">${fixedHours} 小时/天</span>
+             <button class="btn ghost sm" data-act="sync-hours">同步到每日工时</button>
+           </div>
+           <div class="field">
+             <label><span class="lab">每日标准工时</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="hoursPerDay" value="${s.hoursPerDay}" min="1" step="0.5" /><span class="unit">时</span></span></label>
+           </div>
+           <div class="hint">修改上下班时间会自动同步每日标准工时；跨天按 +24 小时计算。</div>`
     }
   </section>
 
@@ -690,7 +741,7 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.3.0</span></div>
+    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.5.0</span></div>
     <div class="about">
       <b>时薪时钟 SalaryClock</b> — 把月薪换算成看得见的每秒收入。<br>
       数据默认只保存在本机；登录后会同步到你配置的服务器。<br>
@@ -1255,27 +1306,36 @@ function parseSchedule(text) {
   const out = {};
   const trimmed = String(text || '').trim();
   if (!trimmed) return out;
+  const types = state.settings.shiftTypes || [];
+  const byName = (name) => types.find((type) => type.name === name);
+  const set = (date, value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return;
+    if (value === '休息' || value === 'rest' || value === 'off') {
+      out[date] = { rest: true };
+      return;
+    }
+    const match = byName(value);
+    if (match) out[date] = { shift: match.id };
+  };
+
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     const json = JSON.parse(trimmed);
     if (Array.isArray(json)) {
-      json.forEach((item) => {
-        if (item && item.date && item.start) {
-          out[item.date] = { start: item.start, end: item.end || '18:00' };
-        }
-      });
+      json.forEach((item) => item && item.date && set(item.date, item.shift || item.name || item.value));
     } else {
-      Object.entries(json).forEach(([key, value]) => {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return;
-        if (typeof value === 'string') out[key] = { start: value, end: '18:00' };
-        else if (value && value.start) out[key] = { start: value.start, end: value.end || '18:00' };
+      Object.entries(json).forEach(([date, value]) => {
+        if (typeof value === 'string') set(date, value);
+        else if (value && value.rest) out[date] = { rest: true };
+        else if (value && value.shift) set(date, value.shift);
       });
     }
     return out;
   }
+
   trimmed.split(/\r?\n/).forEach((line) => {
-    const cells = line.split(',').map((c) => c.trim());
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(cells[0] || '')) return;
-    out[cells[0]] = { start: cells[1] || '09:00', end: cells[2] || '18:00' };
+    const cells = line.split(',').map((cell) => cell.trim());
+    if (!cells[0]) return;
+    set(cells[0], cells[1]);
   });
   return out;
 }
@@ -1298,6 +1358,7 @@ async function importScheduleFile(file) {
 /* ---------------- 日历（收入视图 / 排班编辑） ---------------- */
 let calMonth = monthKeyOf(dateKey(new Date()));
 let calMode = 'view';
+let calSelected = null;
 
 function openCalendar(mode = 'view', month) {
   calMode = mode;
@@ -1326,9 +1387,20 @@ function renderCalendar() {
     const rest = isRestDay(state.settings, key);
     const work = state.settings.shiftMode && !rest;
     const today = key === dateKey(new Date());
-    cells.push(`<button class="cal-cell ${work ? 'work' : ''} ${rest ? 'rest' : ''} ${today ? 'today' : ''} ${holiday ? 'holiday' : ''}" data-act="cal-day" data-day="${key}">
+    const type = shiftOf(state.settings, key);
+    const tag = rest ? '休' : type ? type.name.slice(0, 1) : '';
+    const selected = calMode === 'edit' && calSelected === key ? 'selected' : '';
+    cells.push(`<button class="cal-cell ${work ? 'work' : ''} ${rest ? 'rest' : ''} ${today ? 'today' : ''} ${holiday ? 'holiday' : ''} ${selected}" data-act="cal-day" data-day="${key}">
       <span class="cal-num">${d}</span>
-      ${pay > 0 ? `<span class="cal-pay">${pay >= 1000 ? `¥${(pay / 1000).toFixed(1)}k` : `¥${pay.toFixed(0)}`}</span>` : ''}
+      ${
+        calMode === 'edit'
+          ? tag
+            ? `<span class="cal-tag">${tag}</span>`
+            : ''
+          : pay > 0
+            ? `<span class="cal-pay">${pay >= 1000 ? `¥${(pay / 1000).toFixed(1)}k` : `¥${pay.toFixed(0)}`}</span>`
+            : ''
+      }
       ${holiday ? '<i class="cal-dot"></i>' : ''}
     </button>`);
   }
@@ -1340,11 +1412,33 @@ function renderCalendar() {
     </div>
     <div class="cal-week">${['日', '一', '二', '三', '四', '五', '六'].map((w) => `<span>${w}</span>`).join('')}</div>
     <div class="cal-grid">${cells.join('')}</div>
-    <div class="cal-hint">${calMode === 'edit' ? '点击日期切换「休息 / 上班」，未标记默认上班' : '日期下方是当天已赚，红点表示节假日'}</div>
+    <div class="cal-picker" id="cal-picker" hidden>
+      <div class="cal-picker-title">选择班次</div>
+      <div class="chip-row" id="cal-options"></div>
+    </div>
+    <div class="cal-hint">${calMode === 'edit' ? '点击日期选择班次或休息，未设置默认第一个班次' : '日期下方是当天已赚，红点表示节假日'}</div>
     <div class="sheet-actions">
       <button class="btn ghost" data-act="cal-close">关闭</button>
     </div>
   </div></div>`;
+}
+
+function updateCalCell(key) {
+  const cell = document.querySelector(`.cal-cell[data-day="${key}"]`);
+  if (!cell) return;
+  const rest = isRestDay(state.settings, key);
+  cell.classList.toggle('rest', rest);
+  cell.classList.toggle('work', !rest);
+  const type = shiftOf(state.settings, key);
+  const text = rest ? '休' : type ? type.name.slice(0, 1) : '';
+  let tag = cell.querySelector('.cal-tag');
+  if (!tag) {
+    tag = document.createElement('span');
+    tag.className = 'cal-tag';
+    cell.appendChild(tag);
+  }
+  tag.textContent = text;
+  tag.hidden = !text;
 }
 
 function showDayDetail(key) {
@@ -1352,13 +1446,14 @@ function showDayDetail(key) {
   const ds = day ? daySummary(day, state.settings) : null;
   const holiday = state.settings.holidays.includes(key);
   const rest = state.settings.shiftMode ? isRestDay(state.settings, key) : false;
+  const type = state.settings.shiftMode ? shiftOf(state.settings, key) : null;
   openSheet({
     title: `${key}${holiday ? ' · 节假日' : ''}`,
     body: `<div class="sum-grid">
       <div><span>当天收入</span><b class="lime">¥${fmtMoney(ds ? ds.pay : 0)}</b></div>
       <div><span>工时</span><b>${fmtDur(ds ? ds.totalMs : 0)}</b></div>
       <div><span>加班</span><b>${fmtDur(ds ? ds.otMs : 0)}</b></div>
-      <div><span>排班</span><b>${state.settings.shiftMode ? (rest ? '休息' : '上班') : '—'}</b></div>
+      <div><span>班次</span><b>${state.settings.shiftMode ? (rest ? '休息' : type ? type.name : '上班') : '—'}</b></div>
     </div>`,
     actions: [{ label: '关闭', value: null }],
   });
@@ -1740,32 +1835,78 @@ const actions = {
   'cal-next': () => shiftCal(1),
   'cal-close': () => {
     $('#modal-root').innerHTML = '';
+    calSelected = null;
     if (calMode === 'edit') render();
   },
   'cal-day': (el) => {
     const key = el.dataset.day;
     if (!key) return;
-    if (calMode === 'edit') {
-      const cell = el.closest('.cal-cell');
-      const entry = state.settings.schedule[key];
-      const wasRest = !!(entry && entry.rest);
-      if (wasRest) {
-        delete state.settings.schedule[key];
-        if (cell) {
-          cell.classList.remove('rest');
-          cell.classList.add('work');
-        }
-      } else {
-        state.settings.schedule[key] = { rest: true };
-        if (cell) {
-          cell.classList.remove('work');
-          cell.classList.add('rest');
-        }
-      }
-      save();
-      return;
+    if (calMode !== 'edit') return showDayDetail(key);
+
+    calSelected = key;
+    document.querySelectorAll('.cal-cell.selected').forEach((cell) => cell.classList.remove('selected'));
+    el.classList.add('selected');
+
+    const current = state.settings.schedule[key] || null;
+    const picker = document.getElementById('cal-picker');
+    const options = document.getElementById('cal-options');
+    if (!picker || !options) return;
+    const chips = [
+      `<button class="chip ${!current ? 'active' : ''}" data-act="cal-pick" data-value="default">默认班次</button>`,
+      ...state.settings.shiftTypes.map(
+        (type) =>
+          `<button class="chip ${current && current.shift === type.id ? 'active' : ''}" data-act="cal-pick" data-value="shift:${type.id}">${escapeHTML(type.name)}</button>`,
+      ),
+      `<button class="chip ${current && current.rest ? 'active' : ''}" data-act="cal-pick" data-value="rest">休息</button>`,
+    ];
+    options.innerHTML = chips.join('');
+    picker.hidden = false;
+  },
+  'cal-pick': (el) => {
+    if (!calSelected) return;
+    const key = calSelected;
+    const value = el.dataset.value;
+    if (value === 'rest') state.settings.schedule[key] = { rest: true };
+    else if (value === 'default') delete state.settings.schedule[key];
+    else state.settings.schedule[key] = { shift: value.split(':')[1] };
+    save();
+    updateCalCell(key);
+    const picker = document.getElementById('cal-picker');
+    if (picker) picker.hidden = true;
+    document.querySelectorAll('.cal-cell.selected').forEach((cell) => cell.classList.remove('selected'));
+    calSelected = null;
+  },
+  'workdays-mode': (el) => {
+    state.settings.workDaysMode = el.dataset.value;
+    applyWorkDays();
+    save();
+    render();
+  },
+  'sync-hours': () => {
+    state.settings.hoursPerDay = hoursBetween(state.settings.workStart, state.settings.workEnd);
+    save();
+    render();
+    toast(`每日工时已同步为 ${state.settings.hoursPerDay} 小时`);
+  },
+  'add-shift-type': () => {
+    const id = `shift${Date.now().toString(36)}`;
+    state.settings.shiftTypes.push({ id, name: '新班次', start: '09:00', end: '18:00' });
+    save();
+    render();
+  },
+  'rm-shift-type': (el) => {
+    const id = el.dataset.id;
+    state.settings.shiftTypes = state.settings.shiftTypes.filter((type) => type.id !== id);
+    if (!state.settings.shiftTypes.length) {
+      state.settings.shiftTypes.push({ id: 'default', name: '默认班次', start: '09:00', end: '18:00' });
     }
-    showDayDetail(key);
+    Object.keys(state.settings.schedule).forEach((key) => {
+      if (state.settings.schedule[key] && state.settings.schedule[key].shift === id) {
+        delete state.settings.schedule[key];
+      }
+    });
+    save();
+    render();
   },
   'sync-holidays': () => syncHolidaysAuto(true),
   'checkin-mode': (el) => {
@@ -1802,9 +1943,21 @@ document.addEventListener('click', (e) => {
   fn(el);
 });
 
-const STRING_FIELDS = ['apiBase', 'wifiSsid', 'shiftStart', 'shiftEnd'];
+const STRING_FIELDS = ['apiBase', 'wifiSsid', 'shiftStart', 'shiftEnd', 'workStart', 'workEnd'];
 
 document.addEventListener('input', (e) => {
+  const shiftInput = e.target.closest('[data-shift-name],[data-shift-start],[data-shift-end]');
+  if (shiftInput) {
+    const id = shiftInput.dataset.shiftName || shiftInput.dataset.shiftStart || shiftInput.dataset.shiftEnd;
+    const type = state.settings.shiftTypes.find((item) => item.id === id);
+    if (type) {
+      if (shiftInput.dataset.shiftName) type.name = shiftInput.value;
+      else if (shiftInput.dataset.shiftStart) type.start = shiftInput.value;
+      else type.end = shiftInput.value;
+      save();
+    }
+    return;
+  }
   const el = e.target.closest('[data-field]');
   if (!el || tab !== 'settings') return;
   const field = el.dataset.field;
@@ -1834,8 +1987,20 @@ document.addEventListener('change', (e) => {
     e.target.value = '';
     return;
   }
+  if (e.target && e.target.closest('[data-shift-name],[data-shift-start],[data-shift-end]')) {
+    save();
+    render();
+    return;
+  }
   const changedField = e.target && e.target.dataset ? e.target.dataset.field : '';
   if (changedField === 'apiBase' || changedField === 'wifiSsid') return;
+  if (changedField === 'workStart' || changedField === 'workEnd') {
+    state.settings.hoursPerDay = hoursBetween(state.settings.workStart, state.settings.workEnd);
+    save();
+    render();
+    toast(`每日工时已同步为 ${state.settings.hoursPerDay} 小时`);
+    return;
+  }
   if (changedField === 'shiftStart' || changedField === 'shiftEnd') {
     save();
     render();

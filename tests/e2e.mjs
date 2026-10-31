@@ -195,28 +195,79 @@ for (const [theme, metaColor] of [['pink', '#fff4f8'], ['dark', '#070a0f'], ['li
   check(`主题 ${theme} 持久化`, themeState.settings.theme === theme, String(themeState.settings.theme));
 }
 
-await evaluate(`[...document.querySelectorAll('[data-act="preset-days"]')].find((b) => b.textContent.includes('本月工作日')).click(); 1`);
+// 月计薪天数：法定 / 不固定 / 自定义
+check('默认按法定 21.75', (await evaluate(`document.querySelector('[data-act="workdays-mode"][data-value="legal"]').classList.contains('active')`)) === true);
+await evaluate(`document.querySelector('[data-act="workdays-mode"][data-value="auto"]').click(); 1`);
 await sleep(300);
 st = await readState();
-const monthDays = st.settings.workDaysPerMonth;
-check('口径预设：本月工作日', monthDays >= 20 && monthDays <= 23, String(monthDays));
-const derived1 = await evaluate(`document.getElementById('derived-hourly').textContent`);
-check('时薪按新口径重算', derived1 === `¥${(16000 / monthDays / 8).toFixed(2)}`, derived1);
-await evaluate(`document.querySelector('[data-act="preset-days"][data-value="21.75"]').click(); 1`);
+const autoDays = st.settings.workDaysPerMonth;
+check('不固定天数按本月工作日', autoDays >= 20 && autoDays <= 23, String(autoDays));
+check('不固定模式隐藏天数输入', (await evaluate(`!document.querySelector('[data-field="workDaysPerMonth"]')`)) === true);
+check('时薪按不固定天数重算', (await evaluate(`document.getElementById('derived-hourly').textContent`)) === `¥${(16000 / autoDays / 8).toFixed(2)}`);
+await evaluate(`document.querySelector('[data-act="workdays-mode"][data-value="custom"]').click(); 1`);
+await sleep(300);
+check('自定义模式显示天数输入', (await evaluate(`!!document.querySelector('[data-field="workDaysPerMonth"]')`)) === true);
+await evaluate(`
+  (() => {
+    const el = document.querySelector('[data-field="workDaysPerMonth"]');
+    el.value = '20';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return 1;
+  })()`);
+await sleep(300);
+check('自定义天数生效 ¥100.00', (await evaluate(`document.getElementById('derived-hourly').textContent`)) === '¥100.00');
+await evaluate(`document.querySelector('[data-act="workdays-mode"][data-value="legal"]').click(); 1`);
 await sleep(300);
 st = await readState();
 check('切回法定 21.75', st.settings.workDaysPerMonth === 21.75, String(st.settings.workDaysPerMonth));
 
 await evaluate(`
-  const el = document.querySelector('[data-field="monthlySalary"]');
-  el.value = '20000';
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
-  1`);
+  (() => {
+    const el = document.querySelector('[data-field="monthlySalary"]');
+    el.value = '20000';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return 1;
+  })()`);
 await sleep(300);
 check('改月薪后时薪实时重算 = ¥114.94', (await evaluate(`document.getElementById('derived-hourly').textContent`)) === '¥114.94', await evaluate(`document.getElementById('derived-hourly').textContent`));
 st = await readState();
 check('设置已持久化', st.settings.monthlySalary === 20000, String(st.settings.monthlySalary));
+
+// 固定工时：上下班时间同步每日标准工时
+await evaluate(`
+  (() => {
+    const start = document.querySelector('[data-field="workStart"]');
+    start.value = '09:00';
+    start.dispatchEvent(new Event('input', { bubbles: true }));
+    start.dispatchEvent(new Event('change', { bubbles: true }));
+    return 1;
+  })()`);
+await sleep(250);
+await evaluate(`
+  (() => {
+    const end = document.querySelector('[data-field="workEnd"]');
+    end.value = '18:00';
+    end.dispatchEvent(new Event('input', { bubbles: true }));
+    end.dispatchEvent(new Event('change', { bubbles: true }));
+    return 1;
+  })()`);
+await sleep(350);
+st = await readState();
+check('固定工时同步每日工时 9 小时', st.settings.hoursPerDay === 9, String(st.settings.hoursPerDay));
+check('时薪按 9 小时重算 ¥102.17', (await evaluate(`document.getElementById('derived-hourly').textContent`)) === '¥102.17');
+await evaluate(`
+  (() => {
+    const end = document.querySelector('[data-field="workEnd"]');
+    end.value = '17:00';
+    end.dispatchEvent(new Event('input', { bubbles: true }));
+    end.dispatchEvent(new Event('change', { bubbles: true }));
+    return 1;
+  })()`);
+await sleep(350);
+st = await readState();
+check('还原每日工时 8 小时', st.settings.hoursPerDay === 8, String(st.settings.hoursPerDay));
 
 // 8. 倍率模式 + 法定基准预设（今天若是周末则按周末倍率）
 await evaluate(`document.querySelector('[data-act="ot-mode"][data-value="multiplier"]').click(); 1`);
@@ -255,9 +306,26 @@ st = await readState();
 check('自动读取节假日（服务器回退）', (st.settings.holidays || []).includes('2026-10-01'), JSON.stringify(st.settings.holidays));
 check('记录节假日来源', st.settings.holidaySource === 'server', String(st.settings.holidaySource));
 
-// 排班日历：点击切换休息 / 上班
+// 工时计算：班次类型 + 排班日历选择班次
 await evaluate(`document.querySelector('[data-act="shift-mode"][data-value="on"]').click(); 1`);
 await sleep(300);
+check('默认班次类型 3 个', (await evaluate(`document.querySelectorAll('.shift-row').length`)) === 3);
+await evaluate(`document.querySelector('[data-act="add-shift-type"]').click(); 1`);
+await sleep(300);
+check('添加班次类型', (await evaluate(`document.querySelectorAll('.shift-row').length`)) === 4);
+await evaluate(`
+  (() => {
+    const inputs = [...document.querySelectorAll('.shift-row .shift-name')];
+    const el = inputs[inputs.length - 1];
+    el.value = '测试班';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return 1;
+  })()`);
+await sleep(250);
+st = await readState();
+const lastType = st.settings.shiftTypes[st.settings.shiftTypes.length - 1];
+check('修改班次名称', lastType.name === '测试班', lastType.name);
+
 await evaluate(`document.querySelector('[data-act="shift-calendar"]').click(); 1`);
 await sleep(300);
 check(
@@ -266,22 +334,33 @@ check(
 );
 const workCells = await evaluate(`document.querySelectorAll('.cal-grid .cal-cell.work').length`);
 check('上班日蓝色底', workCells >= 28, String(workCells));
+
 await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
+await sleep(250);
+check('点击日期弹出班次选择', (await evaluate(`!document.getElementById('cal-picker').hidden`)) === true);
+const options = await evaluate(`[...document.querySelectorAll('#cal-options [data-act="cal-pick"]')].map((b) => b.textContent.trim())`);
+check('班次选项含休息与自定义班次', options.includes('休息') && options.some((t) => t.includes('测试班')), JSON.stringify(options));
+await evaluate(`[...document.querySelectorAll('#cal-options [data-act="cal-pick"]')].find((b) => b.textContent.includes('测试班')).click(); 1`);
 await sleep(300);
 st = await readState();
-check('点击日期标记休息日', st.settings.schedule?.[todayKey]?.rest === true, JSON.stringify(st.settings.schedule));
-const restClass = await evaluate(
-  `document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('rest')`,
-);
-check('休息日青色底（class=rest）', restClass === true);
+check('选择班次写入排班', !!st.settings.schedule?.[todayKey]?.shift, JSON.stringify(st.settings.schedule));
+check('日历显示班次标记', (await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"] .cal-tag')?.textContent || ''`)) === '测');
+
 await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
+await sleep(250);
+await evaluate(`[...document.querySelectorAll('#cal-options [data-act="cal-pick"]')].find((b) => b.textContent === '休息').click(); 1`);
 await sleep(300);
 st = await readState();
-check('再次点击恢复上班日', !st.settings.schedule?.[todayKey], JSON.stringify(st.settings.schedule));
-const workClass = await evaluate(
-  `document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('work')`,
-);
-check('恢复后蓝色底', workClass === true);
+check('选择休息日', st.settings.schedule?.[todayKey]?.rest === true, JSON.stringify(st.settings.schedule));
+check('休息日青色底（class=rest）', (await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('rest')`)) === true);
+
+await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
+await sleep(250);
+await evaluate(`[...document.querySelectorAll('#cal-options [data-act="cal-pick"]')].find((b) => b.textContent === '默认班次').click(); 1`);
+await sleep(300);
+st = await readState();
+check('恢复默认班次', !st.settings.schedule?.[todayKey], JSON.stringify(st.settings.schedule));
+check('恢复后蓝色底', (await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('work')`)) === true);
 await evaluate(`document.querySelector('[data-act="cal-close"]').click(); 1`);
 await sleep(300);
 

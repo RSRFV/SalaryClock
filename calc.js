@@ -22,9 +22,17 @@ export const DEFAULT_SETTINGS = {
 
   // 排班
   shiftMode: false,          // 是否排班制
-  shiftStart: '09:00',       // 排班默认证上班时间
-  shiftEnd: '18:00',         // 排班默认下班时间
-  schedule: {},              // { 'YYYY-MM-DD': { rest:true } }，未标记即上班日
+  shiftStart: '09:00',       // 兼容旧字段
+  shiftEnd: '18:00',         // 兼容旧字段
+  schedule: {},              // { 'YYYY-MM-DD': { shift:'morning' } | { rest:true } }
+  shiftTypes: [
+    { id: 'morning', name: '早班', start: '08:00', end: '16:00' },
+    { id: 'middle', name: '中班', start: '14:00', end: '22:00' },
+    { id: 'night', name: '晚班', start: '22:00', end: '06:00' },
+  ],
+  workStart: '09:00',        // 固定工时上班时间
+  workEnd: '17:00',          // 固定工时下班时间
+  workDaysMode: 'legal',     // 'legal' 法定 21.75 | 'auto' 不固定 | 'custom' 自定义
 
   // 打卡方式
   checkInMode: 'manual',     // 'manual' 手动 | 'auto' 自动
@@ -110,6 +118,37 @@ export function scheduleOf(settings, dateStr) {
   const schedule = settings && settings.schedule;
   const entry = schedule && schedule[dateStr];
   return entry || null;
+}
+
+/** 某天的班次类型：休息返回 null；默认班次为第一个班次 */
+export function shiftOf(settings, dateStr) {
+  const entry = scheduleOf(settings, dateStr);
+  if (entry && entry.rest) return null;
+  const types = Array.isArray(settings && settings.shiftTypes) ? settings.shiftTypes : [];
+  if (entry && entry.shift) return types.find((t) => t.id === entry.shift) || types[0] || null;
+  return types[0] || null;
+}
+
+export function shiftLabel(settings, dateStr) {
+  const entry = scheduleOf(settings, dateStr);
+  if (entry && entry.rest) return '休息';
+  const type = shiftOf(settings, dateStr);
+  return type ? type.name : '上班';
+}
+
+/** 两个 HH:MM 之间的工时（跨天按 +24h） */
+export function hoursBetween(start, end) {
+  const parse = (t) => {
+    const [h, m] = String(t || '').split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
+  const s = parse(start);
+  const e = parse(end);
+  if (s == null || e == null) return 0;
+  let mins = e - s;
+  if (mins <= 0) mins += 1440;
+  return Math.round((mins / 60) * 100) / 100;
 }
 
 /** 是否被标记为休息日 */

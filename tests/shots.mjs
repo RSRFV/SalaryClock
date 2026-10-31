@@ -102,7 +102,7 @@ await shot('settings-sync.png', `${APP}?tab=settings`, `
 await shot('settings-shift.png', `${APP}?tab=settings`, `
   document.querySelector('[data-act="shift-mode"][data-value="on"]').click();
   setTimeout(() => {
-    const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('排班制'));
+    const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('工时计算'));
     if (card) card.scrollIntoView({ block: 'start' });
   }, 200);
   1`, 'light');
