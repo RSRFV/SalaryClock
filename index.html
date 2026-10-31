@@ -5,13 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>时薪时钟 SalaryClock</title>
   <meta name="description" content="输入月薪与加班时薪，实时看见今天和本月已经赚到的钱。" />
-  <meta name="theme-color" content="#080B10" />
+  <meta name="theme-color" content="#f5f6f8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="时薪时钟" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icon.svg" />
   <link rel="manifest" href="./manifest.webmanifest" />
+  <script>
+    // 首次绘制前应用主题，避免明暗闪烁
+    (function () {
+      var theme = 'light';
+      try {
+        var raw = localStorage.getItem('salary-clock-v1');
+        if (raw) {
+          var saved = JSON.parse(raw);
+          var t = saved && saved.settings && saved.settings.theme;
+          if (t === 'light' || t === 'dark' || t === 'pink') theme = t;
+        }
+      } catch (err) {}
+      document.documentElement.setAttribute('data-theme', theme);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) {
+        meta.setAttribute('content', { light: '#f5f6f8', dark: '#070a0f', pink: '#fff4f8' }[theme]);
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>

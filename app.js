@@ -29,6 +29,8 @@ import {
 } from './calc.js';
 
 const STORE_KEY = 'salary-clock-v1';
+const THEMES = ['light', 'dark', 'pink'];
+const THEME_META = { light: '#f5f6f8', dark: '#070a0f', pink: '#fff4f8' };
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -50,6 +52,7 @@ function loadState() {
     raw = null;
   }
   const settings = { ...DEFAULT_SETTINGS, ...(raw && raw.settings ? raw.settings : {}) };
+  if (!THEMES.includes(settings.theme)) settings.theme = DEFAULT_SETTINGS.theme;
   if (settings.company && typeof settings.company.lat !== 'number') settings.company = null;
   const days = raw && raw.days && typeof raw.days === 'object' ? raw.days : {};
   const months = raw && raw.months && typeof raw.months === 'object' ? raw.months : {};
@@ -62,6 +65,16 @@ function save() {
   } catch (err) {
     console.warn('保存失败', err);
   }
+}
+
+/** 应用主题：html[data-theme] + 浏览器状态栏颜色 */
+function applyTheme(theme) {
+  const next = THEMES.includes(theme) ? theme : DEFAULT_SETTINGS.theme;
+  document.documentElement.setAttribute('data-theme', next);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', THEME_META[next]);
+  const apple = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if (apple) apple.setAttribute('content', next === 'dark' ? 'black-translucent' : 'default');
 }
 
 function ensureDay(k) {
@@ -310,6 +323,25 @@ function settingsHTML() {
   </section>
 
   <section class="card">
+    <div class="card-head"><div class="card-title">外观</div><span class="tag">立即生效</span></div>
+    <div class="theme-row">
+      <button class="theme-opt ${s.theme === 'light' ? 'active' : ''}" data-act="set-theme" data-value="light">
+        <span class="swatch swatch-light"></span>
+        <span class="theme-name">白色简洁</span>
+      </button>
+      <button class="theme-opt ${s.theme === 'dark' ? 'active' : ''}" data-act="set-theme" data-value="dark">
+        <span class="swatch swatch-dark"></span>
+        <span class="theme-name">夜间</span>
+      </button>
+      <button class="theme-opt ${s.theme === 'pink' ? 'active' : ''}" data-act="set-theme" data-value="pink">
+        <span class="swatch swatch-pink"></span>
+        <span class="theme-name">粉色可爱</span>
+      </button>
+    </div>
+    <div class="hint" style="margin-top:8px">只切换配色，打卡与金额数据不受影响。</div>
+  </section>
+
+  <section class="card">
     <div class="card-head"><div class="card-title">收入口径</div></div>
     <div class="field">
       <label><span class="lab">月薪</span><span class="input-wrap"><input class="input" type="number" inputmode="decimal" data-field="monthlySalary" value="${s.monthlySalary}" min="0" step="100" /><span class="unit">元</span></span></label>
@@ -398,7 +430,7 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.1.0</span></div>
+    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.2.0</span></div>
     <div class="about">
       <b>时薪时钟 SalaryClock</b> — 把月薪换算成看得见的每秒收入。<br>
       所有数据仅保存在本机浏览器，不上传、不联网、无广告。<br>
@@ -970,6 +1002,14 @@ const actions = {
     save();
     render();
   },
+  'set-theme': (el) => {
+    const theme = el.dataset.value;
+    if (!THEMES.includes(theme)) return;
+    state.settings.theme = theme;
+    save();
+    applyTheme(theme);
+    render();
+  },
   'preset-days': (el) => {
     if (el.dataset.value === 'custom') {
       const inp = document.querySelector('[data-field="workDaysPerMonth"]');
@@ -1099,6 +1139,7 @@ function init() {
   const t = q.get('tab');
   if (['home', 'records', 'settings'].includes(t)) tab = t;
 
+  applyTheme(state.settings.theme);
   normalize();
   render({ top: true });
   setInterval(tick, 500);

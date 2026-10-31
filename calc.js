@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS = {
 
   // 界面
   animateAmount: true,       // 首页金额是否逐秒跳动
+  theme: 'light',            // 'light' 白色简洁 | 'dark' 夜间 | 'pink' 粉色可爱
 };
 
 export const pad2 = (n) => String(n).padStart(2, '0');

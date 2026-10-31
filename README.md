@@ -31,6 +31,7 @@ python -m http.server 8787 --bind 127.0.0.1 --directory .
 | 记录 | 按月浏览、每天每段工时与金额、补录、删除、实发校准（对比 + 反推税后时薪） |
 | 设置 | 时薪公式与口径预设（法定 21.75 / 本月工作日 / 自定义）、加班固定时薪或倍率（平日/周末可调）、公司位置、导出 JSON、清空 |
 | PWA | 离线可用、可添加到主屏幕 |
+| 外观 | 白色简洁（默认）/ 夜间 / 粉色可爱 三套主题，设置页切换，立即生效并持久化 |
 
 ## 演示数据
 
@@ -67,7 +68,7 @@ node tests/e2e.mjs
 ## 文档与截图
 
 - 产品方案评估与优化（PM 文档）：[`docs/产品方案评估与优化.md`](./docs/产品方案评估与优化.md)
-- 界面截图：`docs/home.png`（加班计时）、`docs/checkout.png`（下班结算）、`docs/settings.png`（时薪口径）、`docs/settings-ot.png`（加班计费）、`docs/records.png`（含实发校准）、`docs/empty.png`
+- 界面截图：`docs/home.png`（白色简洁）、`docs/home-dark.png`（夜间）、`docs/home-pink.png`（粉色可爱）、`docs/checkout.png`（下班结算）、`docs/settings.png`（时薪口径与主题）、`docs/settings-ot.png`（加班计费）、`docs/records.png`（含实发校准）、`docs/empty.png`
 
 ## 手机上用
 

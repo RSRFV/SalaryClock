@@ -178,9 +178,23 @@ await sleep(350);
 st = await readState();
 check('清除实发校准', !st.months?.[mk], JSON.stringify(st.months));
 
-// 7. 设置：口径预设 → 改月薪
+// 7. 设置：主题 → 口径预设 → 改月薪
 await evaluate(`document.querySelector('[data-act="tab"][data-tab="settings"]').click(); 1`);
 await sleep(300);
+
+// 7.0 主题切换（默认白色简洁）
+check('默认主题为 light', (await evaluate(`document.documentElement.getAttribute('data-theme')`)) === 'light');
+for (const [theme, metaColor] of [['pink', '#fff4f8'], ['dark', '#070a0f'], ['light', '#f5f6f8']]) {
+  await evaluate(`document.querySelector('[data-act="set-theme"][data-value="${theme}"]').click(); 1`);
+  await sleep(250);
+  const applied = await evaluate(`document.documentElement.getAttribute('data-theme')`);
+  check(`主题切换 ${theme} 生效`, applied === theme, applied);
+  const themeMeta = await evaluate(`document.querySelector('meta[name="theme-color"]').getAttribute('content')`);
+  check(`主题 ${theme} 更新状态栏颜色`, themeMeta.toLowerCase() === metaColor, themeMeta);
+  const themeState = await readState();
+  check(`主题 ${theme} 持久化`, themeState.settings.theme === theme, String(themeState.settings.theme));
+}
+
 await evaluate(`[...document.querySelectorAll('[data-act="preset-days"]')].find((b) => b.textContent.includes('本月工作日')).click(); 1`);
 await sleep(300);
 st = await readState();
