@@ -74,10 +74,11 @@ node tests/e2e.mjs
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Android | `dist/SalaryClock-android-debug.apk`（GitHub Actions 自动构建） | debug 签名，可直接安装自用；上架需自建 keystore |
-| iOS | `dist/SalaryClock-ios-unsigned.ipa`（未签名） | **不能直接安装**，需 Sideloadly/AltStore 自签，或使用 Apple 开发者账号 |
+| Android | `dist/SalaryClock-android-debug.apk`（已构建，约 70 KB） | minSdk 21 / targetSdk 34，debug 签名，可直接安装自用；上架需自建 keystore |
+| iOS | `dist/SalaryClock-ios-unsigned.ipa`（未签名，需构建或 CI） | **不能直接安装**，需 Sideloadly/AltStore 自签，或使用 Apple 开发者账号 |
 
-- 构建入口：**Actions → Build Android APK / Build iOS (unsigned) → Run workflow**
+- Android 本地重建：`cd android-native; .\build.ps1`（不依赖 Gradle，只用 aapt2/d8/apksigner）
+- CI 构建入口：**Actions → Build Android APK / Build iOS (unsigned) → Run workflow**
 - 详细步骤与签名说明见 [`docs/安装包构建说明.md`](./docs/安装包构建说明.md)
 - 最快的 iOS 体验方式：把网页部署到 HTTPS（GitHub Pages 等），Safari 打开后「添加到主屏幕」
 
