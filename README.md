@@ -29,7 +29,8 @@ python -m http.server 8787 --bind 127.0.0.1 --directory .
 | 打卡 | 定位围栏（关闭/提醒/严格）、上班打卡、正常↔加班切换、下班结算 |
 | 实时 | 今日已赚逐秒累加、本月累计、月薪进度、今日明细 |
 | 记录 | 按月浏览、每天每段工时与金额、补录、删除、实发校准（对比 + 反推税后时薪） |
-| 设置 | 时薪公式与口径预设（法定 21.75 / 本月工作日 / 排班天数 / 自定义）、加班固定时薪或倍率（平日/周末/节假日可调）、法定节假日列表、排班制（手动 / CSV / JSON 导入）、公司位置、导出 JSON、清空 |
+| 日历 | 顶栏日历按钮：收入视图（日期下方显示当天已赚、红点标节假日）、排班视图（点日期切换休息/上班） |
+| 设置 | 时薪公式与口径预设（法定 21.75 / 本月工作日 / 排班天数 / 自定义）、加班固定时薪或倍率（平日/周末/节假日可调）、法定节假日（联网同步 + 手动）、排班制（日历点选 / CSV / JSON 导入）、打卡方式（手动 / 自动：定位围栏 + 指定 WiFi）、公司位置、导出 JSON、清空 |
 | 账户 | 注册 / 登录、云端快照同步、自动同步开关、服务器地址可配 |
 | PWA | 离线可用、可添加到主屏幕 |
 | 外观 | 白色简洁（默认）/ 夜间 / 粉色可爱 三套主题，设置页切换，立即生效并持久化 |
@@ -51,6 +52,7 @@ node server/index.mjs
 | `POST /api/auth/login` | 同上，token 有效期 30 天 |
 | `GET /api/sync` | 读取当前用户的快照 `{data, updatedAt}` |
 | `PUT /api/sync` | 上传 `{data, updatedAt}`（整包快照） |
+| `GET /api/holidays?year=2026` | 联网读取节假日（上游可配 `HOLIDAY_API`，本地缓存 7 天，失败回退缓存） |
 | `GET /api/health` | 健康检查 |
 
 实现要点：密码 `scrypt` 加盐哈希、token 为 HMAC-SHA256 签名、数据落在 `server/data/users.json`（已 gitignore）、CORS 允许跨域便于本地双端口调试。**生产部署请放在 HTTPS 反向代理后**，并定期备份 `server/data`。详见 [`docs/后端与同步.md`](./docs/后端与同步.md)。
@@ -90,7 +92,7 @@ node tests/e2e.mjs
 ## 文档与截图
 
 - 产品方案评估与优化（PM 文档）：[`docs/产品方案评估与优化.md`](./docs/产品方案评估与优化.md)
-- 界面截图：`docs/home.png`（白色简洁）、`docs/home-dark.png`（夜间）、`docs/home-pink.png`（粉色可爱）、`docs/settings.png`（时薪口径与主题）、`docs/settings-ot.png`（加班计费）、`docs/settings-shift.png`（排班制）、`docs/settings-sync.png`（账户同步）、`docs/records.png`（含实发校准）、`docs/checkout.png`（下班结算）、`docs/empty.png`
+- 界面截图：`docs/home.png`（白色简洁）、`docs/home-dark.png`（夜间）、`docs/home-pink.png`（粉色可爱）、`docs/calendar.png`（收入日历）、`docs/settings.png`（时薪口径与主题）、`docs/settings-ot.png`（加班计费）、`docs/settings-shift.png`（排班制）、`docs/schedule-calendar.png`（排班日历）、`docs/checkin.png`（自动打卡）、`docs/settings-sync.png`（账户同步）、`docs/records.png`（含实发校准）、`docs/checkout.png`（下班结算）、`docs/empty.png`
 
 ## 安装包
 

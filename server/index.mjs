@@ -27,6 +27,64 @@ if (!fs.existsSync(SECRET_FILE)) {
 }
 const SECRET = fs.readFileSync(SECRET_FILE, 'utf8').trim();
 
+/* ---------- 节假日日历（联网读取 + 缓存 + 离线兜底） ---------- */
+const HOLIDAY_API = process.env.HOLIDAY_API || 'https://timor.tech/api/holiday/year/{year}';
+const HOLIDAY_TTL = 7 * 24 * 3600 * 1000;
+const holidayCache = new Map();
+
+async function loadHolidays(year) {
+  if (holidayCache.has(year)) return holidayCache.get(year);
+
+  const file = path.join(DATA_DIR, `holidays-${year}.json`);
+  let cached = null;
+  try {
+    cached = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    cached = null;
+  }
+  if (cached && Date.now() - (cached.fetchedAt || 0) < HOLIDAY_TTL) {
+    holidayCache.set(year, cached);
+    return cached;
+  }
+
+  let remote;
+  try {
+    const res = await fetch(HOLIDAY_API.replace('{year}', String(year)), {
+      signal: AbortSignal.timeout(8000),
+      headers: { accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`上游 ${res.status}`);
+    remote = await res.json();
+  } catch (err) {
+    if (cached) {
+      holidayCache.set(year, cached);
+      return cached;
+    }
+    const e = new Error(`节假日服务不可达：${err.message}`);
+    e.status = 502;
+    throw e;
+  }
+
+  const obj = remote.holiday || remote.data || {};
+  const holidays = [];
+  for (const [key, value] of Object.entries(obj)) {
+    if (!value || value.holiday !== true) continue;
+    const date = key.length === 5 ? `${year}-${key}` : key;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    holidays.push({ date, name: value.name || '节假日' });
+  }
+  holidays.sort((a, b) => a.date.localeCompare(b.date));
+
+  const payload = { year, source: 'remote', fetchedAt: Date.now(), holidays };
+  try {
+    fs.writeFileSync(file, JSON.stringify(payload));
+  } catch {
+    /* 缓存失败不影响返回 */
+  }
+  holidayCache.set(year, payload);
+  return payload;
+}
+
 function loadUsers() {
   try {
     return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
@@ -192,6 +250,16 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname === '/api/health') {
       return json(res, 200, { ok: true, time: Date.now(), users: Object.keys(db.users).length });
+    }
+
+    if (pathname === '/api/holidays' && req.method === 'GET') {
+      const year = Number(url.searchParams.get('year') || new Date().getFullYear());
+      if (!(year >= 2020 && year <= 2035)) return json(res, 400, { error: 'year 需在 2020–2035 之间' });
+      try {
+        return json(res, 200, await loadHolidays(year));
+      } catch (err) {
+        return json(res, err.status || 502, { error: err.message });
+      }
     }
 
     if (pathname === '/api/auth/register' && req.method === 'POST') {

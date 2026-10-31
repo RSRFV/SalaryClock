@@ -20,7 +20,15 @@ export const DEFAULT_SETTINGS = {
 
   // 排班
   shiftMode: false,          // 是否排班制
-  schedule: {},              // { 'YYYY-MM-DD': { start:'09:00', end:'18:00' } }，无记录视为休息日
+  shiftStart: '09:00',       // 排班默认证上班时间
+  shiftEnd: '18:00',         // 排班默认下班时间
+  schedule: {},              // { 'YYYY-MM-DD': { rest:true } }，未标记即上班日
+
+  // 打卡方式
+  checkInMode: 'manual',     // 'manual' 手动 | 'auto' 自动
+  autoGeofence: true,        // 自动模式：进入公司范围自动打卡
+  autoWifi: false,           // 自动模式：连接指定 WiFi 自动打卡
+  wifiSsid: '',              // 指定 WiFi 名称（需 Android 壳支持读取）
 
   // 位置
   geofenceMode: 'loose',     // 'off' 关闭 | 'loose' 提醒 | 'strict' 拦截
@@ -95,21 +103,35 @@ export function overtimeHourly(settings, dateStr = dateKey()) {
   return Math.max(0, num(settings.otFixedRate));
 }
 
-/** 某天排班（无记录视为休息日） */
+/** 某天排班（无记录视为上班日） */
 export function scheduleOf(settings, dateStr) {
   const schedule = settings && settings.schedule;
   const entry = schedule && schedule[dateStr];
-  return entry && entry.start ? entry : null;
+  return entry || null;
 }
 
-/** 某月排班工作日数量 */
+/** 是否被标记为休息日 */
+export function isRestDay(settings, dateStr) {
+  const entry = scheduleOf(settings, dateStr);
+  return !!(entry && entry.rest === true);
+}
+
+export function daysInMonth(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+/** 某月排班上班日数量：整月天数 − 标记为休息日的天数 */
 export function scheduledWorkdays(schedule, monthKey) {
-  if (!schedule || typeof schedule !== 'object') return 0;
-  return Object.keys(schedule).filter((k) => {
-    if (!k.startsWith(monthKey)) return false;
-    const e = schedule[k];
-    return e && e.start;
-  }).length;
+  const total = daysInMonth(monthKey);
+  if (!schedule || typeof schedule !== 'object') return total;
+  let rest = 0;
+  for (const key of Object.keys(schedule)) {
+    if (!key.startsWith(monthKey)) continue;
+    const entry = schedule[key];
+    if (entry && entry.rest === true) rest += 1;
+  }
+  return Math.max(0, total - rest);
 }
 
 /** 某类工时的单价 */

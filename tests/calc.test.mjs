@@ -14,6 +14,8 @@ import {
   fmtDistance,
   countWeekdays,
   isHoliday,
+  isRestDay,
+  daysInMonth,
   scheduleOf,
   scheduledWorkdays,
   parseDateKey,
@@ -142,18 +144,19 @@ test('节假日：固定时薪与倍率分别生效', () => {
   assert.equal(isHoliday(fixed, '2026-10-02'), false);
 });
 
-test('排班：排班日统计与当日查询', () => {
+test('排班：默认上班日，标记休息日才扣减', () => {
   const schedule = {
-    '2026-10-01': { start: '14:00', end: '22:00' },
-    '2026-10-02': { start: '09:00', end: '18:00' },
-    '2026-10-03': { start: '' },
-    '2026-11-01': { start: '08:00', end: '12:00' },
+    '2026-10-01': { rest: true },
+    '2026-10-02': { rest: true },
+    '2026-10-03': { start: '09:00', end: '18:00' }, // 旧格式：视为上班
+    '2026-11-01': { rest: true },
   };
-  assert.equal(scheduledWorkdays(schedule, '2026-10'), 2);
-  assert.equal(scheduledWorkdays(schedule, '2026-11'), 1);
-  assert.deepEqual(scheduleOf({ schedule }, '2026-10-01'), { start: '14:00', end: '22:00' });
-  assert.equal(scheduleOf({ schedule }, '2026-10-03'), null);
-  assert.equal(scheduleOf({ schedule }, '2026-12-01'), null);
+  assert.equal(daysInMonth('2026-10'), 31);
+  assert.equal(scheduledWorkdays(schedule, '2026-10'), 29);
+  assert.equal(scheduledWorkdays(schedule, '2026-11'), 29);
+  assert.equal(isRestDay({ schedule }, '2026-10-01'), true);
+  assert.equal(isRestDay({ schedule }, '2026-10-03'), false);
+  assert.equal(isRestDay({ schedule }, '2026-12-01'), false);
 });
 
 test('合规提示：100/h 低于 1.5 倍参考线会提示', () => {

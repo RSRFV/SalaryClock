@@ -1,12 +1,15 @@
 package com.rsrfv.salaryclock;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -56,8 +59,28 @@ public class MainActivity extends Activity {
             }
         });
 
+        web.addJavascriptInterface(new WifiBridge(), "SalaryClockNative");
         web.loadUrl(ORIGIN + "/index.html");
         setContentView(web, new ViewGroup.LayoutParams(-1, -1));
+    }
+
+    /** 暴露当前 WiFi 名称给网页，用于「连接指定 WiFi 自动打卡」 */
+    public class WifiBridge {
+        @JavascriptInterface
+        public String getWifiSsid() {
+            try {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wm == null || wm.getConnectionInfo() == null) return "";
+                String ssid = wm.getConnectionInfo().getSSID();
+                if (ssid == null) return "";
+                if (ssid.startsWith("\"") && ssid.endsWith("\"") && ssid.length() > 1) {
+                    return ssid.substring(1, ssid.length() - 1);
+                }
+                return ssid;
+            } catch (Exception e) {
+                return "";
+            }
+        }
     }
 
     private WebResourceResponse serveAsset(Uri url) {

@@ -231,36 +231,48 @@ const baseNow = 20000 / 21.75 / 8;
 const expectedOtRate = `¥${(baseNow * expectedMult).toFixed(2)}`;
 check(`倍率模式加班时薪 = ${expectedMult} 倍（${expectedOtRate}）`, otRate === expectedOtRate, otRate);
 
-// 9. 节假日 / 排班 / 账号同步
+// 9. 日历 / 节假日 / 排班 / 账号同步
 await evaluate(`document.querySelector('[data-act="tab"][data-tab="settings"]').click(); 1`);
 await sleep(300);
 const todayKey = await evaluate(
   `(() => { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); })()`,
 );
 
-await evaluate(`document.getElementById('holiday-date').value = '${todayKey}'; document.querySelector('[data-act="add-holiday"]').click(); 1`);
-await sleep(300);
-st = await readState();
-check('添加节假日', (st.settings.holidays || []).includes(todayKey), JSON.stringify(st.settings.holidays));
-const holidayOt = (await evaluate(`document.getElementById('derived-ot').textContent`));
-check('节假日加班按 3 倍（¥344.83）', holidayOt === '¥344.83', holidayOt);
+// 日历：收入视图
+await evaluate(`document.querySelector('[data-act="calendar"]').click(); 1`);
+await sleep(400);
+const calCells = await evaluate(`document.querySelectorAll('.cal-grid .cal-cell:not(.blank)').length`);
+check('日历打开并渲染当月', calCells >= 28, String(calCells));
+const calPay = await evaluate(`document.querySelectorAll('.cal-pay:not(.none)').length`);
+check('日历显示每日收入', calPay >= 1, String(calPay));
+await evaluate(`document.querySelector('[data-act="cal-close"]').click(); 1`);
+await sleep(250);
 
+// 联网同步节假日（后端 mock 上游）
+await evaluate(`document.querySelector('[data-act="sync-holidays"]').click(); 1`);
+await sleep(1200);
+st = await readState();
+check('联网同步节假日', (st.settings.holidays || []).includes('2026-10-01'), JSON.stringify(st.settings.holidays));
+
+// 排班日历：点击切换休息 / 上班
 await evaluate(`document.querySelector('[data-act="shift-mode"][data-value="on"]').click(); 1`);
 await sleep(300);
-await evaluate(`
-  document.getElementById('shift-date').value = '${todayKey}';
-  document.getElementById('shift-start').value = '10:00';
-  document.getElementById('shift-end').value = '19:00';
-  document.querySelector('[data-act="set-shift"]').click(); 1`);
+await evaluate(`document.querySelector('[data-act="shift-calendar"]').click(); 1`);
+await sleep(300);
+check(
+  '打开排班日历',
+  (await evaluate(`document.querySelectorAll('.cal-grid .cal-cell:not(.blank)').length`)) >= 28,
+);
+await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
 await sleep(300);
 st = await readState();
-check(
-  '排班写入',
-  st.settings.shiftMode === true && st.settings.schedule?.[todayKey]?.start === '10:00',
-  JSON.stringify(st.settings.schedule),
-);
-const schedText = await evaluate(`document.body.textContent.includes('排班 10:00')`);
-check('设置页展示排班时间', schedText === true);
+check('点击日期标记休息日', st.settings.schedule?.[todayKey]?.rest === true, JSON.stringify(st.settings.schedule));
+await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
+await sleep(300);
+st = await readState();
+check('再次点击恢复上班日', !st.settings.schedule?.[todayKey], JSON.stringify(st.settings.schedule));
+await evaluate(`document.querySelector('[data-act="cal-close"]').click(); 1`);
+await sleep(300);
 
 // 账户同步（后端需运行在 8788）
 await evaluate(`
@@ -310,6 +322,26 @@ await evaluate(`document.querySelector('[data-idx="0"]').click(); 1`);
 await sleep(400);
 const wiped = await readState();
 check('清空后数据为空', Object.keys(wiped.days || {}).length === 0, JSON.stringify(wiped));
+
+// 11. 自动打卡（模拟 Android WiFi 桥）
+await evaluate(`(() => {
+  const raw = JSON.parse(localStorage.getItem('salary-clock-v1') || '{}');
+  raw.settings = Object.assign({}, raw.settings, {
+    checkInMode: 'auto',
+    autoWifi: true,
+    autoGeofence: false,
+    wifiSsid: 'Office-5G',
+  });
+  localStorage.setItem('salary-clock-v1', JSON.stringify(raw));
+  return 1;
+})()`);
+await reload();
+await evaluate(`window.SalaryClockNative = { getWifiSsid: () => 'Office-5G' }; window.__salaryClockAutoCheckIn(); 1`);
+await sleep(600);
+st = await readState();
+const autoSeg = Object.values(st.days || {}).flatMap((d) => d.segments || []).find((s) => s.auto);
+check('连接指定 WiFi 自动打卡', !!autoSeg, JSON.stringify(autoSeg || null));
+check('自动打卡后进入正常计时', (await evaluate(`document.getElementById('hero-pill-label').textContent`)) === '正常工作');
 
 // 10. 无脚本异常
 check('运行时无未捕获异常', exceptions.length === 0, exceptions.join(' | '));

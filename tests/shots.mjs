@@ -81,6 +81,19 @@ await shot('home.png', `${APP}?demo=1`, null, 'light');
 await shot('home-dark.png', `${APP}?demo=1`, null, 'dark');
 await shot('home-pink.png', `${APP}?demo=1`, null, 'pink');
 await shot('records.png', `${APP}?demo=1&tab=records`, null, 'light');
+await shot('calendar.png', `${APP}?demo=1`, `document.querySelector('[data-act="calendar"]').click(); 1`, 'light');
+await shot('schedule-calendar.png', `${APP}?tab=settings`, `
+  document.querySelector('[data-act="shift-mode"][data-value="on"]').click();
+  setTimeout(() => document.querySelector('[data-act="shift-calendar"]').click(), 250);
+  setTimeout(() => { const d = [...document.querySelectorAll('.cal-grid .cal-cell:not(.blank)')]; if (d[3]) d[3].click(); }, 600);
+  1`, 'light');
+await shot('checkin.png', `${APP}?tab=settings`, `
+  document.querySelector('[data-act="checkin-mode"][data-value="auto"]').click();
+  setTimeout(() => {
+    const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('打卡方式'));
+    if (card) card.scrollIntoView({ block: 'start' });
+  }, 250);
+  1`, 'light');
 await shot('settings.png', `${APP}?tab=settings`, null, 'light');
 await shot('settings-sync.png', `${APP}?tab=settings`, `
   const card = [...document.querySelectorAll('.card')].find((c) => c.textContent.includes('账户与同步'));

@@ -24,6 +24,8 @@ import {
   pad2,
   countWeekdays,
   isHoliday,
+  isRestDay,
+  daysInMonth,
   scheduleOf,
   scheduledWorkdays,
   distanceMeters,
@@ -263,6 +265,7 @@ function homeHTML() {
   const pct = s.monthlySalary > 0 ? Math.min(100, (m.pay / s.monthlySalary) * 100) : 0;
   const segs = day ? [...day.segments].sort((a, b) => a.s - b.s) : [];
   const tSch = s.shiftMode ? scheduleOf(s, tk) : null;
+  const restToday = s.shiftMode ? isRestDay(s, tk) : false;
 
   const heroClass = mode === 'overtime' ? 'is-ot' : mode === 'normal' ? 'is-normal' : 'is-idle';
   const pillClass = mode === 'overtime' ? 'is-ot' : mode === 'normal' ? 'is-normal' : 'is-idle';
@@ -315,8 +318,8 @@ function homeHTML() {
            <div class="loc">
              <div class="loc-ico">🗓</div>
              <div class="loc-main">
-               <b>今日${tSch ? `排班 ${tSch.start} – ${tSch.end}` : '休息'}</b>
-               <small>${tSch ? '按排班时间上下班，加班手动切换' : '今天没有排班，也可临时打卡'}</small>
+               <b>今日${restToday ? '休息' : '上班'}</b>
+               <small>${restToday ? '排班日历里标记为休息日' : `上班时间 ${s.shiftStart} – ${s.shiftEnd}`}</small>
              </div>
            </div>
          </section>`
@@ -411,7 +414,8 @@ function dayCardHTML(day) {
   const d = daySummary(day, s);
   const segs = [...day.segments].sort((a, b) => a.s - b.s);
   const sch = s.shiftMode ? scheduleOf(s, day.date) : null;
-  const schedTxt = s.shiftMode ? (sch ? `排班 ${sch.start}–${sch.end}` : '休息日') : '';
+  const rest = s.shiftMode ? isRestDay(s, day.date) : false;
+  const schedTxt = s.shiftMode ? (rest ? '休息日' : `上班 ${s.shiftStart}–${s.shiftEnd}`) : '';
   return `<details class="card day-card">
     <summary>
       <div class="day-date"><b>${day.date.slice(5)}</b><span>${weekdayCN(day.date)}</span></div>
@@ -438,7 +442,7 @@ function settingsHTML() {
   const schedCount = s.shiftMode
     ? scheduledWorkdays(s.schedule, monthKeyOf(dateKey(now)))
     : 0;
-  const todaySchedule = s.shiftMode ? scheduleOf(s, dateKey(now)) : null;
+  const restToday = s.shiftMode ? isRestDay(s, dateKey(now)) : false;
   const isCustomDays =
     Math.abs(s.workDaysPerMonth - 21.75) > 0.001 &&
     Math.abs(s.workDaysPerMonth - monthWorkdays) > 0.001;
@@ -578,7 +582,11 @@ function settingsHTML() {
       <input type="date" id="holiday-date" class="input date" />
       <button class="btn ghost sm" data-act="add-holiday">添加节假日</button>
     </div>
-    <div class="hint">只影响加班金额，不影响打卡。法定节假日参考 3 倍；列表需按年手动维护。</div>
+    <div class="loc-actions">
+      <button class="btn ghost sm" data-act="sync-holidays">联网同步今年日历</button>
+      <span class="hint">当前 ${s.holidays.length} 个日期</span>
+    </div>
+    <div class="hint">节假日来自联网日历或手动添加；只影响加班金额，不影响打卡。</div>
   </section>
 
   <section class="card">
@@ -592,29 +600,24 @@ function settingsHTML() {
         ? `<div class="loc" style="margin-top:10px">
              <div class="loc-ico">🗓</div>
              <div class="loc-main">
-               <b>今日${todaySchedule ? `排班 ${todaySchedule.start} – ${todaySchedule.end}` : '休息'}</b>
-               <small>没有排班的日期视为休息日</small>
+               <b>今日${restToday ? '休息' : '上班'}</b>
+               <small>${restToday ? '在排班日历里被标记为休息日' : `上班时间 ${s.shiftStart} – ${s.shiftEnd}`}</small>
              </div>
            </div>
            <div class="input-line end">
-             <input type="date" id="shift-date" class="input date" value="${dateKey(new Date())}" />
-             <input type="time" id="shift-start" class="input time" value="09:00" />
-             <input type="time" id="shift-end" class="input time" value="18:00" />
+             <input type="time" class="input time" data-field="shiftStart" value="${s.shiftStart}" />
+             <input type="time" class="input time" data-field="shiftEnd" value="${s.shiftEnd}" />
            </div>
            <div class="loc-actions">
-             <button class="btn ghost sm" data-act="set-shift">设为工作日</button>
-             <button class="btn ghost sm" data-act="clear-shift">设为休息日</button>
-           </div>
-           <div class="field">
-             <button class="btn ghost block" data-act="import-shift">导入排班表（CSV / JSON）</button>
+             <button class="btn primary sm" data-act="shift-calendar">打开排班日历</button>
+             <button class="btn ghost sm" data-act="import-shift">导入 CSV/JSON</button>
              <input type="file" id="shift-file" accept=".csv,.json,text/csv,application/json" hidden />
-             <div class="hint">CSV：2026-11-01,09:00,18:00；JSON：{"2026-11-01":{"start":"09:00","end":"18:00"}}。导入会合并到现有排班。</div>
            </div>
+           <div class="hint">点一下日期 = 休息日，再点一下 = 上班日；不点的默认上班。本月上班 ${schedCount} 天。</div>
            <div class="loc-actions">
-             <span class="hint">本月已排 ${schedCount} 天</span>
-             <button class="btn ghost sm" data-act="clear-schedule">清空本月排班</button>
+             <button class="btn ghost sm" data-act="clear-schedule">清空本月休息标记</button>
            </div>`
-        : '<div class="hint">开启后可按日期设置上下班时间，或在设置页导入 CSV / JSON 排班表；月计薪天数可一键按排班天数计算。</div>'
+        : '<div class="hint">开启后打开排班日历，点击日期即可标记休息；未标记的日期默认上班。</div>'
     }
   </section>
 
@@ -648,7 +651,37 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">数据</div><span class="tag">localStorage</span></div>
+    <div class="card-head"><div class="card-title">打卡方式</div><span class="tag">${s.checkInMode === 'auto' ? '自动' : '手动'}</span></div>
+    <div class="seg">
+      <button data-act="checkin-mode" data-value="manual" class="${s.checkInMode !== 'auto' ? 'active' : ''}">手动打卡</button>
+      <button data-act="checkin-mode" data-value="auto" class="${s.checkInMode === 'auto' ? 'active' : ''}">自动打卡</button>
+    </div>
+    ${
+      s.checkInMode === 'auto'
+        ? `<div class="field">
+             <label><span class="lab">进入公司范围自动打卡</span></label>
+             <div class="seg">
+               <button data-act="auto-geofence" data-value="on" class="${s.autoGeofence ? 'active' : ''}">开</button>
+               <button data-act="auto-geofence" data-value="off" class="${!s.autoGeofence ? 'active' : ''}">关</button>
+             </div>
+           </div>
+           <div class="field">
+             <label><span class="lab">连接指定 WiFi 自动打卡</span></label>
+             <div class="seg">
+               <button data-act="auto-wifi" data-value="on" class="${s.autoWifi ? 'active' : ''}">开</button>
+               <button data-act="auto-wifi" data-value="off" class="${!s.autoWifi ? 'active' : ''}">关</button>
+             </div>
+           </div>
+           <div class="field">
+             <label><span class="lab">WiFi 名称</span></label>
+             <input class="input wide" data-field="wifiSsid" value="${escapeHTML(s.wifiSsid)}" placeholder="Office-5G" />
+           </div>
+           <div class="hint">自动打卡需 App 在前台；浏览器读不到 WiFi 名称，仅 Android 壳支持。定位每 60 秒检查一次，当天已有记录不会重复打卡。</div>`
+        : '<div class="hint">到公司后手动点「打卡上班」；切到自动后，进入公司范围或连上指定 WiFi 会自动开始计时。</div>'
+    }
+  </section>
+
+  <section class="card">
     <div style="display:flex;flex-direction:column;gap:8px">
       <button class="btn ghost block" data-act="export">导出 JSON 备份</button>
       <button class="btn ghost block" data-act="demo">载入演示数据（今天 + 8 个工作日）</button>
@@ -657,10 +690,10 @@ function settingsHTML() {
   </section>
 
   <section class="card">
-    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.2.0</span></div>
+    <div class="card-head"><div class="card-title">关于</div><span class="tag">v0.3.0</span></div>
     <div class="about">
       <b>时薪时钟 SalaryClock</b> — 把月薪换算成看得见的每秒收入。<br>
-      所有数据仅保存在本机浏览器，不上传、不联网、无广告。<br>
+      数据默认只保存在本机；登录后会同步到你配置的服务器。<br>
       加班费计算仅为个人记录工具，不构成法律意见。
     </div>
   </section>
@@ -1262,6 +1295,120 @@ async function importScheduleFile(file) {
   }
 }
 
+/* ---------------- 日历（收入视图 / 排班编辑） ---------------- */
+let calMonth = monthKeyOf(dateKey(new Date()));
+let calMode = 'view';
+
+function openCalendar(mode = 'view', month) {
+  calMode = mode;
+  calMonth = month || monthKeyOf(dateKey(new Date()));
+  renderCalendar();
+}
+
+function shiftCal(delta) {
+  const [y, m] = calMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const root = $('#modal-root');
+  const [y, m] = calMonth.split('-').map(Number);
+  const offset = new Date(y, m - 1, 1).getDay();
+  const total = daysInMonth(calMonth);
+  const cells = [];
+  for (let i = 0; i < offset; i += 1) cells.push('<span class="cal-cell blank"></span>');
+  for (let d = 1; d <= total; d += 1) {
+    const key = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const day = state.days[key];
+    const ds = day ? daySummary(day, state.settings) : null;
+    const pay = ds ? ds.pay : 0;
+    const holiday = state.settings.holidays.includes(key);
+    const rest = isRestDay(state.settings, key);
+    const today = key === dateKey(new Date());
+    cells.push(`<button class="cal-cell ${today ? 'today' : ''} ${holiday ? 'holiday' : ''} ${rest ? 'rest' : ''}" data-act="cal-day" data-day="${key}">
+      <span class="cal-num">${d}</span>
+      ${rest ? '<span class="cal-rest">休</span>' : pay > 0 ? `<span class="cal-pay">${pay >= 1000 ? `¥${(pay / 1000).toFixed(1)}k` : `¥${pay.toFixed(0)}`}</span>` : ''}
+      ${holiday ? '<i class="cal-dot"></i>' : ''}
+    </button>`);
+  }
+  root.innerHTML = `<div class="overlay"><div class="sheet cal-sheet" role="dialog" aria-modal="true">
+    <div class="cal-head">
+      <button class="icon-btn" data-act="cal-prev" aria-label="上个月">‹</button>
+      <b>${y}年${m}月</b>
+      <button class="icon-btn" data-act="cal-next" aria-label="下个月">›</button>
+    </div>
+    <div class="cal-week">${['日', '一', '二', '三', '四', '五', '六'].map((w) => `<span>${w}</span>`).join('')}</div>
+    <div class="cal-grid">${cells.join('')}</div>
+    <div class="cal-hint">${calMode === 'edit' ? '点击日期切换「休息 / 上班」，未标记默认上班' : '日期下方是当天已赚，红点表示节假日'}</div>
+    <div class="sheet-actions">
+      <button class="btn ghost" data-act="cal-close">关闭</button>
+    </div>
+  </div></div>`;
+}
+
+function showDayDetail(key) {
+  const day = state.days[key];
+  const ds = day ? daySummary(day, state.settings) : null;
+  const holiday = state.settings.holidays.includes(key);
+  const rest = state.settings.shiftMode ? isRestDay(state.settings, key) : false;
+  openSheet({
+    title: `${key}${holiday ? ' · 节假日' : ''}`,
+    body: `<div class="sum-grid">
+      <div><span>当天收入</span><b class="lime">¥${fmtMoney(ds ? ds.pay : 0)}</b></div>
+      <div><span>工时</span><b>${fmtDur(ds ? ds.totalMs : 0)}</b></div>
+      <div><span>加班</span><b>${fmtDur(ds ? ds.otMs : 0)}</b></div>
+      <div><span>排班</span><b>${state.settings.shiftMode ? (rest ? '休息' : '上班') : '—'}</b></div>
+    </div>`,
+    actions: [{ label: '关闭', value: null }],
+  });
+}
+
+/* ---------------- 自动打卡 ---------------- */
+function autoCheckInAllowed() {
+  const s = state.settings;
+  if (s.checkInMode !== 'auto') return false;
+  if (findActive()) return false;
+  const day = state.days[dateKey(new Date())];
+  return !(day && day.segments && day.segments.length);
+}
+
+async function maybeAutoCheckIn() {
+  if (!autoCheckInAllowed()) return;
+  const s = state.settings;
+
+  if (s.autoWifi && s.wifiSsid) {
+    let ssid = '';
+    try {
+      const bridge = window.SalaryClockNative;
+      if (bridge && typeof bridge.getWifiSsid === 'function') ssid = String(bridge.getWifiSsid() || '');
+    } catch (err) {
+      ssid = '';
+    }
+    if (ssid && ssid === s.wifiSsid) return doAutoClockIn(`WiFi「${ssid}」`);
+  }
+
+  if (s.autoGeofence && s.company) {
+    const loc = await locate(6000);
+    if (loc.pos) {
+      const dist = distanceMeters({ lat: loc.pos.latitude, lng: loc.pos.longitude }, s.company);
+      if (dist <= (Number(s.company.radius) || 200)) return doAutoClockIn('进入公司范围');
+    }
+  }
+}
+
+function doAutoClockIn(reason) {
+  if (findActive()) return;
+  const now = Date.now();
+  ensureDay(dateKey(new Date(now))).segments.push({ t: 'normal', s: now, e: null, auto: true });
+  save();
+  render();
+  toast(`已自动打卡上班（${reason}）`);
+}
+
+window.__salaryClockAutoCheckIn = maybeAutoCheckIn;
+
 function exportJSON() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1500,6 +1647,56 @@ const actions = {
     save();
     render();
   },
+  calendar: () => openCalendar('view'),
+  'shift-calendar': () => openCalendar('edit'),
+  'cal-prev': () => shiftCal(-1),
+  'cal-next': () => shiftCal(1),
+  'cal-close': () => {
+    $('#modal-root').innerHTML = '';
+    if (calMode === 'edit') render();
+  },
+  'cal-day': (el) => {
+    const key = el.dataset.day;
+    if (!key) return;
+    if (calMode === 'edit') {
+      const entry = state.settings.schedule[key];
+      if (entry && entry.rest) delete state.settings.schedule[key];
+      else state.settings.schedule[key] = { rest: true };
+      save();
+      renderCalendar();
+      return;
+    }
+    showDayDetail(key);
+  },
+  'sync-holidays': async () => {
+    const year = new Date().getFullYear();
+    try {
+      const data = await apiFetch(`/api/holidays?year=${year}`);
+      const dates = (data.holidays || []).map((h) => h.date);
+      if (!dates.length) return toast('日历里没有节假日数据');
+      state.settings.holidays = [...new Set([...state.settings.holidays, ...dates])].sort();
+      save();
+      render();
+      toast(`已同步 ${dates.length} 个节假日（${data.source === 'remote' ? '网络' : '缓存'}）`);
+    } catch (err) {
+      toast(`同步失败：${err.message}`);
+    }
+  },
+  'checkin-mode': (el) => {
+    state.settings.checkInMode = el.dataset.value === 'auto' ? 'auto' : 'manual';
+    save();
+    render();
+  },
+  'auto-geofence': (el) => {
+    state.settings.autoGeofence = el.dataset.value === 'on';
+    save();
+    render();
+  },
+  'auto-wifi': (el) => {
+    state.settings.autoWifi = el.dataset.value === 'on';
+    save();
+    render();
+  },
   export: () => exportJSON(),
   wipe: () => wipeAll(),
   demo: () => {
@@ -1519,13 +1716,17 @@ document.addEventListener('click', (e) => {
   fn(el);
 });
 
+const STRING_FIELDS = ['apiBase', 'wifiSsid', 'shiftStart', 'shiftEnd'];
+
 document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-field]');
   if (!el || tab !== 'settings') return;
   const field = el.dataset.field;
-  if (field === 'apiBase') {
-    auth.apiBase = el.value.trim();
+  if (STRING_FIELDS.includes(field)) {
+    if (field === 'apiBase') auth.apiBase = el.value.trim();
+    else state.settings[field] = el.value;
     saveAuth();
+    save();
     return;
   }
   let v = parseFloat(el.value);
@@ -1547,7 +1748,13 @@ document.addEventListener('change', (e) => {
     e.target.value = '';
     return;
   }
-  if (e.target && e.target.dataset && e.target.dataset.field === 'apiBase') return;
+  const changedField = e.target && e.target.dataset ? e.target.dataset.field : '';
+  if (changedField === 'apiBase' || changedField === 'wifiSsid') return;
+  if (changedField === 'shiftStart' || changedField === 'shiftEnd') {
+    save();
+    render();
+    return;
+  }
   const el = e.target.closest('[data-field]');
   if (!el || tab !== 'settings') return;
   const s = state.settings;
@@ -1594,6 +1801,14 @@ function init() {
   normalize();
   render({ top: true });
   setInterval(tick, 500);
+
+  if (state.settings.checkInMode === 'auto') {
+    setTimeout(maybeAutoCheckIn, 1500);
+    setInterval(maybeAutoCheckIn, 60000);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) maybeAutoCheckIn();
+  });
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});

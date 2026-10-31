@@ -213,6 +213,45 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .topbar-right { display: flex; align-items: center; gap: 7px; }
 .now { font-family: var(--mono); font-size: 13px; color: var(--muted); letter-spacing: 0.04em; }
+.cal-btn {
+  width: 32px; height: 32px; border-radius: 10px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text-2);
+}
+.cal-btn:active { background: var(--surface-3); }
+
+/* 日历弹层 */
+.cal-sheet { padding: 16px 14px 14px; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-head b { font-size: 15px; font-weight: 700; }
+.cal-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
+.cal-week span { text-align: center; font-size: 10.5px; color: var(--muted); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-cell {
+  position: relative; min-height: 54px; border-radius: 10px;
+  border: 1px solid transparent; background: var(--surface-2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; padding: 4px 2px;
+}
+.cal-cell.blank { background: transparent; border: 0; }
+.cal-cell.today { border-color: var(--money); box-shadow: inset 0 0 0 1px var(--money-line); }
+.cal-cell.holiday { background: var(--ot-dim); }
+.cal-cell.rest { background: var(--surface-3); }
+.cal-num { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cal-pay { font-size: 9.5px; color: var(--money-ink); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.cal-rest { font-size: 9.5px; font-weight: 650; color: var(--muted); }
+.cal-cell.rest .cal-num { color: var(--muted); }
+.cal-pay.none { color: var(--muted); opacity: 0.5; }
+.cal-cell.holiday .cal-num { color: var(--ot); }
+.cal-dot {
+  position: absolute; top: 4px; right: 5px;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--ot);
+}
+.cal-hint { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: center; }
+.cal-sheet .sheet-actions { margin-top: 12px; }
+.cal-sheet .sheet-actions .btn { min-height: 44px; }
 .live-dot {
   width: 7px; height: 7px; border-radius: 50%; background: var(--money);
   animation: pulse 2s infinite;

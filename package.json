@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "private": true,
   "description": "时薪时钟 SalaryClock — PWA + 零依赖同步后端",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "start": "node server/index.mjs",
     "test": "node tests/calc.test.mjs"
