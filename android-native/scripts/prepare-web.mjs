@@ -17,7 +17,9 @@ fs.mkdirSync(www, { recursive: true });
 const calc = fs.readFileSync(path.join(root, 'calc.js'), 'utf8').replace(/^export\s+/gm, '');
 const app = fs
   .readFileSync(path.join(root, 'app.js'), 'utf8')
-  .replace(/import\s*\{[\s\S]*?\}\s*from\s*'\.\/calc\.js';\s*/, '');
+  .replace(/import\s*\{[\s\S]*?\}\s*from\s*'\.\/calc\.js';\s*/, '')
+  // 壳内不做 Service Worker：资源由 WebViewClient 直接拦截提供
+  .replace(/if \('serviceWorker' in navigator[\s\S]*?\n  \}/, '');
 
 fs.writeFileSync(
   path.join(www, 'app.bundle.js'),
