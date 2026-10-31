@@ -1,6 +1,6 @@
 /* ============================================================
-   时薪时钟 SalaryClock — 移动优先 PWA 样式
-   主题：light（白色简洁，默认）/ dark（夜间）/ pink（粉色可爱）
+   鏃惰柂鏃堕挓 SalaryClock 鈥?绉诲姩浼樺厛 PWA 鏍峰紡
+   涓婚锛歭ight锛堢櫧鑹茬畝娲侊紝榛樿锛? dark锛堝闂达級/ pink锛堢矇鑹插彲鐖憋級
    ============================================================ */
 
 :root {
@@ -11,7 +11,7 @@
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
 }
 
-/* ---------- 夜间 ---------- */
+/* ---------- 澶滈棿 ---------- */
 html[data-theme="dark"] {
   color-scheme: dark;
   --bg: #070a0f;
@@ -53,9 +53,11 @@ html[data-theme="dark"] {
   --hero-bottom: rgba(255, 255, 255, 0.022);
   --brand-grad: linear-gradient(145deg, #c8f751, #7fd428);
   --brand-ring: rgba(8, 11, 16, 0.72);
+  --cal-work-bg: rgba(96, 140, 255, 0.22);
+  --cal-rest-bg: rgba(45, 212, 191, 0.18);
 }
 
-/* ---------- 白色简洁（默认） ---------- */
+/* ---------- 鐧借壊绠€娲侊紙榛樿锛?---------- */
 html[data-theme="light"] {
   color-scheme: light;
   --bg: #f5f6f8;
@@ -97,9 +99,11 @@ html[data-theme="light"] {
   --hero-bottom: #ffffff;
   --brand-grad: linear-gradient(145deg, #12b981, #0e9f6e);
   --brand-ring: rgba(255, 255, 255, 0.85);
+  --cal-work-bg: #dbeafe;
+  --cal-rest-bg: #ccfbf1;
 }
 
-/* ---------- 粉色可爱 ---------- */
+/* ---------- 绮夎壊鍙埍 ---------- */
 html[data-theme="pink"] {
   color-scheme: light;
   --bg: #fff4f8;
@@ -141,6 +145,8 @@ html[data-theme="pink"] {
   --hero-bottom: #ffffff;
   --brand-grad: linear-gradient(145deg, #ff9fbe, #f2588c);
   --brand-ring: rgba(255, 255, 255, 0.85);
+  --cal-work-bg: rgba(127, 178, 255, 0.22);
+  --cal-rest-bg: rgba(94, 234, 212, 0.18);
 }
 
 * { box-sizing: border-box; }
@@ -188,7 +194,7 @@ h1, h2, h3, h4, p { margin: 0; }
   padding: 0 18px calc(88px + env(safe-area-inset-bottom));
 }
 
-/* ---------------- 顶栏 ---------------- */
+/* ---------------- 椤舵爮 ---------------- */
 .topbar {
   display: flex;
   align-items: center;
@@ -221,7 +227,7 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .cal-btn:active { background: var(--surface-3); }
 
-/* 日历弹层 */
+/* 鏃ュ巻寮瑰眰 */
 .cal-sheet { padding: 16px 14px 14px; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .cal-head b { font-size: 15px; font-weight: 700; }
@@ -235,13 +241,12 @@ h1, h2, h3, h4, p { margin: 0; }
   gap: 1px; padding: 4px 2px;
 }
 .cal-cell.blank { background: transparent; border: 0; }
+.cal-cell.work { background: var(--cal-work-bg); }
+.cal-cell.rest { background: var(--cal-rest-bg); }
 .cal-cell.today { border-color: var(--money); box-shadow: inset 0 0 0 1px var(--money-line); }
 .cal-cell.holiday { background: var(--ot-dim); }
-.cal-cell.rest { background: var(--surface-3); }
 .cal-num { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .cal-pay { font-size: 9.5px; color: var(--money-ink); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.cal-rest { font-size: 9.5px; font-weight: 650; color: var(--muted); }
-.cal-cell.rest .cal-num { color: var(--muted); }
 .cal-pay.none { color: var(--muted); opacity: 0.5; }
 .cal-cell.holiday .cal-num { color: var(--ot); }
 .cal-dot {
@@ -266,7 +271,7 @@ h1, h2, h3, h4, p { margin: 0; }
 .view > * { animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-/* ---------------- 首页主卡 ---------------- */
+/* ---------------- 棣栭〉涓诲崱 ---------------- */
 .hero {
   position: relative;
   overflow: hidden;
@@ -339,7 +344,7 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .bar-cap b { color: var(--text-2); font-weight: 600; }
 
-/* ---------------- 操作区 ---------------- */
+/* ---------------- 鎿嶄綔鍖?---------------- */
 .actions { display: flex; flex-direction: column; gap: 9px; }
 
 .btn {
@@ -371,7 +376,7 @@ h1, h2, h3, h4, p { margin: 0; }
 .hint-line { font-size: 12px; color: var(--muted); text-align: center; padding: 2px 6px; }
 .hint-line b { color: var(--text-2); }
 
-/* ---------------- 通用卡片 ---------------- */
+/* ---------------- 閫氱敤鍗＄墖 ---------------- */
 .card {
   border-radius: var(--radius);
   border: 1px solid var(--line);
@@ -391,7 +396,7 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .card-title .tag { margin-left: 6px; }
 
-/* 今日时间线 */
+/* 浠婃棩鏃堕棿绾?*/
 .tl { display: flex; flex-direction: column; gap: 2px; }
 .tl-item { display: flex; align-items: center; gap: 11px; padding: 8px 0; }
 .tl-item + .tl-item { border-top: 1px dashed var(--dash); }
@@ -408,7 +413,7 @@ h1, h2, h3, h4, p { margin: 0; }
 .tl-pay { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tl-empty { font-size: 13px; color: var(--muted); padding: 6px 0 2px; }
 
-/* 今日/本月统计 */
+/* 浠婃棩/鏈湀缁熻 */
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .stat {
   border-radius: var(--radius-sm); border: 1px solid var(--line);
@@ -418,7 +423,7 @@ h1, h2, h3, h4, p { margin: 0; }
 .stat b { display: block; margin-top: 3px; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat b small { font-size: 11px; font-weight: 500; color: var(--muted); margin-left: 2px; }
 
-/* ---------------- 记录页 ---------------- */
+/* ---------------- 璁板綍椤?---------------- */
 .month-nav { display: flex; align-items: center; justify-content: space-between; padding: 2px 0; }
 .month-nav .label { font-size: 15px; font-weight: 650; }
 .month-nav .label small { color: var(--muted); font-size: 12px; font-weight: 500; margin-left: 6px; }
@@ -444,7 +449,7 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .day-card summary::-webkit-details-marker { display: none; }
 .day-card summary::after {
-  content: "⌄"; color: var(--muted); font-size: 14px; transition: transform 0.2s ease;
+  content: "鈱?; color: var(--muted); font-size: 14px; transition: transform 0.2s ease;
 }
 .day-card[open] summary::after { transform: rotate(180deg); }
 .day-date { width: 66px; flex: none; }
@@ -465,7 +470,7 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .empty .em { font-size: 22px; display: block; margin-bottom: 6px; opacity: 0.6; }
 
-/* ---------------- 设置页 ---------------- */
+/* ---------------- 璁剧疆椤?---------------- */
 .field { padding: 11px 0; }
 .field + .field { border-top: 1px solid var(--line); }
 .field > label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -531,7 +536,7 @@ code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); 
 .about { font-size: 11.5px; color: var(--muted); line-height: 1.7; }
 .about b { color: var(--text-2); }
 
-/* 主题选择 */
+/* 涓婚閫夋嫨 */
 .theme-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
 .theme-opt {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -561,7 +566,7 @@ code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); 
 .theme-name { font-size: 12px; font-weight: 600; color: var(--text-2); }
 .theme-opt.active .theme-name { color: var(--money-ink); }
 
-/* ---------------- 底部导航 ---------------- */
+/* ---------------- 搴曢儴瀵艰埅 ---------------- */
 .tabbar {
   position: fixed;
   bottom: 0;
@@ -593,7 +598,7 @@ code { font-family: var(--mono); font-size: 11px; background: var(--surface-2); 
 .tab-ico { font-size: 17px; line-height: 1; }
 .tab.active { color: var(--money-ink); background: var(--money-dim); }
 
-/* ---------------- 弹层 / toast ---------------- */
+/* ---------------- 寮瑰眰 / toast ---------------- */
 .overlay {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: flex-end; justify-content: center;

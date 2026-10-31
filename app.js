@@ -583,10 +583,10 @@ function settingsHTML() {
       <button class="btn ghost sm" data-act="add-holiday">添加节假日</button>
     </div>
     <div class="loc-actions">
-      <button class="btn ghost sm" data-act="sync-holidays">联网同步今年日历</button>
-      <span class="hint">当前 ${s.holidays.length} 个日期</span>
+      <span class="hint">自动来源：${s.holidaySource === 'calendar' ? '本机日历' : s.holidaySource === 'server' ? '服务器' : s.holidaySource === 'cache' ? '缓存' : s.holidaySource === 'failed' ? '读取失败' : '未同步'}${s.holidaySyncedAt ? ` · ${new Date(s.holidaySyncedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}</span>
+      <button class="btn ghost sm" data-act="sync-holidays">重新读取</button>
     </div>
-    <div class="hint">节假日来自联网日历或手动添加；只影响加班金额，不影响打卡。</div>
+    <div class="hint">打开 App 会自动读取本机日历里的节假日（Android），读不到时回退到服务器日历；只影响加班金额。</div>
   </section>
 
   <section class="card">
@@ -1303,9 +1303,7 @@ function openCalendar(mode = 'view', month) {
   calMode = mode;
   calMonth = month || monthKeyOf(dateKey(new Date()));
   renderCalendar();
-}
-
-function shiftCal(delta) {
+}function shiftCal(delta) {
   const [y, m] = calMonth.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
   calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -1326,10 +1324,11 @@ function renderCalendar() {
     const pay = ds ? ds.pay : 0;
     const holiday = state.settings.holidays.includes(key);
     const rest = isRestDay(state.settings, key);
+    const work = state.settings.shiftMode && !rest;
     const today = key === dateKey(new Date());
-    cells.push(`<button class="cal-cell ${today ? 'today' : ''} ${holiday ? 'holiday' : ''} ${rest ? 'rest' : ''}" data-act="cal-day" data-day="${key}">
+    cells.push(`<button class="cal-cell ${work ? 'work' : ''} ${rest ? 'rest' : ''} ${today ? 'today' : ''} ${holiday ? 'holiday' : ''}" data-act="cal-day" data-day="${key}">
       <span class="cal-num">${d}</span>
-      ${rest ? '<span class="cal-rest">休</span>' : pay > 0 ? `<span class="cal-pay">${pay >= 1000 ? `¥${(pay / 1000).toFixed(1)}k` : `¥${pay.toFixed(0)}`}</span>` : ''}
+      ${pay > 0 ? `<span class="cal-pay">${pay >= 1000 ? `¥${(pay / 1000).toFixed(1)}k` : `¥${pay.toFixed(0)}`}</span>` : ''}
       ${holiday ? '<i class="cal-dot"></i>' : ''}
     </button>`);
   }
@@ -1386,7 +1385,10 @@ async function maybeAutoCheckIn() {
     } catch (err) {
       ssid = '';
     }
-    if (ssid && ssid === s.wifiSsid) return doAutoClockIn(`WiFi「${ssid}」`);
+    if (ssid && ssid === s.wifiSsid) {
+      if (!wifiPromptedToday(ssid)) return promptWifiCheckIn(ssid);
+      return;
+    }
   }
 
   if (s.autoGeofence && s.company) {
@@ -1408,6 +1410,91 @@ function doAutoClockIn(reason) {
 }
 
 window.__salaryClockAutoCheckIn = maybeAutoCheckIn;
+
+/* 连接指定 WiFi 时先询问，用户确认后再打卡；同一天同一 SSID 只问一次 */
+const WIFI_PROMPT_KEY = 'salary-clock-wifi-prompt-v1';
+
+function wifiPromptedToday(ssid) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(WIFI_PROMPT_KEY) || 'null');
+    return !!saved && saved.date === dateKey(new Date()) && saved.ssid === ssid;
+  } catch (err) {
+    return false;
+  }
+}
+
+function markWifiPrompted(ssid) {
+  try {
+    localStorage.setItem(WIFI_PROMPT_KEY, JSON.stringify({ date: dateKey(new Date()), ssid }));
+  } catch (err) {
+    /* ignore */
+  }
+}
+
+async function promptWifiCheckIn(ssid) {
+  markWifiPrompted(ssid);
+  const res = await openSheet({
+    title: '已连接指定 WiFi',
+    body: `检测到已连接「${ssid}」，是否现在开始打卡上班？`,
+    actions: [
+      { label: '开始打卡', value: 'go', variant: 'primary' },
+      { label: '今天不再提示', value: 'skip' },
+    ],
+  });
+  if (res && res.value === 'go') doAutoClockIn(`WiFi「${ssid}」`);
+}
+
+/* ---------------- 节假日：优先读本机日历，失败回退服务器 ---------------- */
+let holidaySyncing = false;
+
+async function syncHolidaysAuto(force = false) {
+  if (holidaySyncing) return;
+  const s = state.settings;
+  const now = new Date();
+  if (!force && s.holidaySyncedAt && dateKey(new Date(s.holidaySyncedAt)) === dateKey(now)) return;
+
+  holidaySyncing = true;
+  try {
+    let dates = [];
+    let source = '';
+
+    const bridge = window.SalaryClockNative;
+    if (bridge && typeof bridge.getCalendarHolidays === 'function') {
+      try {
+        const raw = bridge.getCalendarHolidays(now.getFullYear());
+        const data = JSON.parse(raw || '{}');
+        if (Array.isArray(data.dates) && data.dates.length) {
+          dates = data.dates.map((item) => item.date);
+          source = 'calendar';
+        }
+      } catch (err) {
+        /* 原生日历不可用时回退服务器 */
+      }
+    }
+
+    if (!dates.length) {
+      const data = await apiFetch(`/api/holidays?year=${now.getFullYear()}`);
+      dates = (data.holidays || []).map((item) => item.date);
+      source = data.source === 'remote' ? 'server' : 'cache';
+    }
+
+    if (dates.length) {
+      state.settings.holidays = [...new Set([...state.settings.holidays, ...dates])].sort();
+      state.settings.holidaySource = source;
+      state.settings.holidaySyncedAt = Date.now();
+      save();
+      if (tab === 'settings') render();
+    }
+  } catch (err) {
+    state.settings.holidaySource = 'failed';
+    save();
+    if (tab === 'settings') render();
+  } finally {
+    holidaySyncing = false;
+  }
+}
+
+window.__salaryClockSyncHolidays = syncHolidaysAuto;
 
 function exportJSON() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
@@ -1659,29 +1746,28 @@ const actions = {
     const key = el.dataset.day;
     if (!key) return;
     if (calMode === 'edit') {
+      const cell = el.closest('.cal-cell');
       const entry = state.settings.schedule[key];
-      if (entry && entry.rest) delete state.settings.schedule[key];
-      else state.settings.schedule[key] = { rest: true };
+      const wasRest = !!(entry && entry.rest);
+      if (wasRest) {
+        delete state.settings.schedule[key];
+        if (cell) {
+          cell.classList.remove('rest');
+          cell.classList.add('work');
+        }
+      } else {
+        state.settings.schedule[key] = { rest: true };
+        if (cell) {
+          cell.classList.remove('work');
+          cell.classList.add('rest');
+        }
+      }
       save();
-      renderCalendar();
       return;
     }
     showDayDetail(key);
   },
-  'sync-holidays': async () => {
-    const year = new Date().getFullYear();
-    try {
-      const data = await apiFetch(`/api/holidays?year=${year}`);
-      const dates = (data.holidays || []).map((h) => h.date);
-      if (!dates.length) return toast('日历里没有节假日数据');
-      state.settings.holidays = [...new Set([...state.settings.holidays, ...dates])].sort();
-      save();
-      render();
-      toast(`已同步 ${dates.length} 个节假日（${data.source === 'remote' ? '网络' : '缓存'}）`);
-    } catch (err) {
-      toast(`同步失败：${err.message}`);
-    }
-  },
+  'sync-holidays': () => syncHolidaysAuto(true),
   'checkin-mode': (el) => {
     state.settings.checkInMode = el.dataset.value === 'auto' ? 'auto' : 'manual';
     save();
@@ -1806,8 +1892,11 @@ function init() {
     setTimeout(maybeAutoCheckIn, 1500);
     setInterval(maybeAutoCheckIn, 60000);
   }
+  setTimeout(() => syncHolidaysAuto(), 1200);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) maybeAutoCheckIn();
+    if (document.hidden) return;
+    maybeAutoCheckIn();
+    syncHolidaysAuto();
   });
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

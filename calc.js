@@ -16,7 +16,9 @@ export const DEFAULT_SETTINGS = {
   otWeekendMultiplier: 2,    // 周末加班倍率
   otHolidayRate: 300,        // 固定模式下法定节假日加班时薪
   otHolidayMultiplier: 3,    // 倍率模式下法定节假日倍率
-  holidays: [],              // 法定节假日日期 ['2026-10-01', ...]，手动维护
+  holidays: [],              // 法定节假日日期 ['2026-10-01', ...]，手动/日历同步
+  holidaySource: '',         // 最近一次自动同步来源：calendar | server | cache | failed
+  holidaySyncedAt: 0,        // 最近一次自动同步时间
 
   // 排班
   shiftMode: false,          // 是否排班制

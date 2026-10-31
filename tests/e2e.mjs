@@ -248,11 +248,12 @@ check('日历显示每日收入', calPay >= 1, String(calPay));
 await evaluate(`document.querySelector('[data-act="cal-close"]').click(); 1`);
 await sleep(250);
 
-// 联网同步节假日（后端 mock 上游）
-await evaluate(`document.querySelector('[data-act="sync-holidays"]').click(); 1`);
+// 自动读取节假日（无原生日历时回退服务器）
+await evaluate(`window.__salaryClockSyncHolidays(true); 1`);
 await sleep(1200);
 st = await readState();
-check('联网同步节假日', (st.settings.holidays || []).includes('2026-10-01'), JSON.stringify(st.settings.holidays));
+check('自动读取节假日（服务器回退）', (st.settings.holidays || []).includes('2026-10-01'), JSON.stringify(st.settings.holidays));
+check('记录节假日来源', st.settings.holidaySource === 'server', String(st.settings.holidaySource));
 
 // 排班日历：点击切换休息 / 上班
 await evaluate(`document.querySelector('[data-act="shift-mode"][data-value="on"]').click(); 1`);
@@ -263,14 +264,24 @@ check(
   '打开排班日历',
   (await evaluate(`document.querySelectorAll('.cal-grid .cal-cell:not(.blank)').length`)) >= 28,
 );
+const workCells = await evaluate(`document.querySelectorAll('.cal-grid .cal-cell.work').length`);
+check('上班日蓝色底', workCells >= 28, String(workCells));
 await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
 await sleep(300);
 st = await readState();
 check('点击日期标记休息日', st.settings.schedule?.[todayKey]?.rest === true, JSON.stringify(st.settings.schedule));
+const restClass = await evaluate(
+  `document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('rest')`,
+);
+check('休息日青色底（class=rest）', restClass === true);
 await evaluate(`document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').click(); 1`);
 await sleep(300);
 st = await readState();
 check('再次点击恢复上班日', !st.settings.schedule?.[todayKey], JSON.stringify(st.settings.schedule));
+const workClass = await evaluate(
+  `document.querySelector('[data-act="cal-day"][data-day="${todayKey}"]').classList.contains('work')`,
+);
+check('恢复后蓝色底', workClass === true);
 await evaluate(`document.querySelector('[data-act="cal-close"]').click(); 1`);
 await sleep(300);
 
@@ -338,10 +349,17 @@ await evaluate(`(() => {
 await reload();
 await evaluate(`window.SalaryClockNative = { getWifiSsid: () => 'Office-5G' }; window.__salaryClockAutoCheckIn(); 1`);
 await sleep(600);
+const promptTitle = await evaluate(`document.querySelector('.sheet h3')?.textContent || ''`);
+check('WiFi 自动打卡先弹确认', promptTitle.includes('已连接指定 WiFi'), promptTitle);
+await evaluate(`document.querySelector('[data-idx="0"]').click(); 1`);
+await sleep(700);
 st = await readState();
 const autoSeg = Object.values(st.days || {}).flatMap((d) => d.segments || []).find((s) => s.auto);
-check('连接指定 WiFi 自动打卡', !!autoSeg, JSON.stringify(autoSeg || null));
+check('确认后执行自动打卡', !!autoSeg, JSON.stringify(autoSeg || null));
 check('自动打卡后进入正常计时', (await evaluate(`document.getElementById('hero-pill-label').textContent`)) === '正常工作');
+await evaluate(`window.__salaryClockAutoCheckIn(); 1`);
+await sleep(400);
+check('同一天不再重复弹窗', !(await evaluate(`!!document.querySelector('.sheet h3')`)));
 
 // 10. 无脚本异常
 check('运行时无未捕获异常', exceptions.length === 0, exceptions.join(' | '));

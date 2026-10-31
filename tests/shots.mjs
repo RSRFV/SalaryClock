@@ -114,6 +114,32 @@ await shot('settings-ot.png', `${APP}?tab=settings`, `
   }, 200);
   1`, 'light');
 await shot('checkout.png', `${APP}?demo=1`, `document.querySelector('[data-act="clockout"]').click(); 1`, 'light');
+
+// WiFi 自动打卡确认弹层（清空今日记录 + 注入原生桥）
+await send('Page.navigate', { url: `${APP}?tab=home` });
+await sleep(400);
+await waitReady();
+await evaluate(`(() => {
+  const raw = JSON.parse(localStorage.getItem('salary-clock-v1') || '{}');
+  raw.settings = Object.assign({}, raw.settings, {
+    checkInMode: 'auto', autoWifi: true, autoGeofence: false, wifiSsid: 'Office-5G',
+  });
+  raw.days = {}; raw.months = {};
+  localStorage.setItem('salary-clock-v1', JSON.stringify(raw));
+  localStorage.removeItem('salary-clock-wifi-prompt-v1');
+  return 1;
+})()`);
+await send('Page.reload', { ignoreCache: true });
+await sleep(400);
+await waitReady();
+await evaluate(`window.SalaryClockNative = { getWifiSsid: () => 'Office-5G' }; window.__salaryClockAutoCheckIn(); 1`);
+await sleep(600);
+{
+  const { data } = await send('Page.captureScreenshot', { format: 'png', fromSurface: true });
+  fs.writeFileSync(OUT + 'wifi-prompt.png', Buffer.from(data, 'base64'));
+  console.log('saved wifi-prompt.png', Buffer.from(data, 'base64').length, 'bytes');
+}
+
 await evaluate(`localStorage.clear(); 1`);
 await shot('empty.png', `${APP}?tab=home`, null, 'light');
 

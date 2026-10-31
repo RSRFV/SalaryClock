@@ -2,10 +2,14 @@ package com.rsrfv.salaryclock;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.CalendarContract;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.webkit.GeolocationPermissions;
@@ -17,8 +21,13 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
+import java.util.TimeZone;
 
 /**
  * 轻量 WebView 壳：把打包在 assets/www 的 PWA 通过拦截式 https 源提供，
@@ -60,6 +69,10 @@ public class MainActivity extends Activity {
         });
 
         web.addJavascriptInterface(new WifiBridge(), "SalaryClockNative");
+        if (Build.VERSION.SDK_INT >= 23
+                && checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] { android.Manifest.permission.READ_CALENDAR }, 1001);
+        }
         web.loadUrl(ORIGIN + "/index.html");
         setContentView(web, new ViewGroup.LayoutParams(-1, -1));
     }
@@ -79,6 +92,70 @@ public class MainActivity extends Activity {
                 return ssid;
             } catch (Exception e) {
                 return "";
+            }
+        }
+
+        /** 读取本机日历中的节假日事件（标题含春节/国庆等关键词），供网页自动同步 */
+        @JavascriptInterface
+        public String getCalendarHolidays(int year) {
+            try {
+                if (Build.VERSION.SDK_INT >= 23
+                        && checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+                    return "{\"error\":\"permission\"}";
+                }
+                java.util.Calendar start = java.util.Calendar.getInstance();
+                start.set(year, java.util.Calendar.JANUARY, 1, 0, 0, 0);
+                start.set(java.util.Calendar.MILLISECOND, 0);
+                java.util.Calendar end = (java.util.Calendar) start.clone();
+                end.add(java.util.Calendar.YEAR, 1);
+
+                String[] projection = {
+                        CalendarContract.Events.TITLE,
+                        CalendarContract.Events.DTSTART,
+                        CalendarContract.Events.ALL_DAY,
+                };
+                String selection = CalendarContract.Events.DTSTART + ">=? AND " + CalendarContract.Events.DTSTART + "<?";
+                Cursor cursor = getContentResolver().query(
+                        CalendarContract.Events.CONTENT_URI,
+                        projection,
+                        selection,
+                        new String[] { String.valueOf(start.getTimeInMillis()), String.valueOf(end.getTimeInMillis()) },
+                        null);
+
+                String[] keywords = { "元旦", "春节", "除夕", "清明", "劳动节", "端午", "中秋", "国庆", "放假" };
+                JSONArray dates = new JSONArray();
+                if (cursor != null) {
+                    while (cursor.moveToNext()) {
+                        String title = cursor.getString(0);
+                        if (title == null) continue;
+                        boolean hit = false;
+                        for (String keyword : keywords) {
+                            if (title.contains(keyword)) {
+                                hit = true;
+                                break;
+                            }
+                        }
+                        if (!hit) continue;
+                        boolean allDay = cursor.getInt(2) == 1;
+                        java.util.Calendar day = java.util.Calendar.getInstance(
+                                allDay ? TimeZone.getTimeZone("UTC") : TimeZone.getDefault());
+                        day.setTimeInMillis(cursor.getLong(1));
+                        String date = String.format(Locale.US, "%04d-%02d-%02d",
+                                day.get(java.util.Calendar.YEAR),
+                                day.get(java.util.Calendar.MONTH) + 1,
+                                day.get(java.util.Calendar.DAY_OF_MONTH));
+                        JSONObject item = new JSONObject();
+                        item.put("date", date);
+                        item.put("name", title);
+                        dates.put(item);
+                    }
+                    cursor.close();
+                }
+                JSONObject out = new JSONObject();
+                out.put("dates", dates);
+                return out.toString();
+            } catch (Exception e) {
+                return "{\"error\":\"" + e.getMessage() + "\"}";
             }
         }
     }
